@@ -1,5 +1,17 @@
 import axios from 'axios';
-import type { AuthResponse, LoginRequest, RegisterRequest, User, AuditLog } from '../types';
+import type {
+  AuthResponse,
+  LoginRequest,
+  RegisterRequest,
+  User,
+  AuditLog,
+  Property,
+  CreatePropertyRequest,
+  UpdatePropertyRequest,
+  PropertyDocument,
+  DocumentType,
+  VerifyDocumentResponse,
+} from '../types';
 
 const api = axios.create({
   baseURL: 'http://localhost:8080',
@@ -46,6 +58,55 @@ export const adminApi = {
 
   getLogs: () =>
     api.get<AuditLog[]>('/api/admin/logs').then((r) => r.data),
+};
+
+export const propertyApi = {
+  getAll: (query?: string, status?: string) =>
+    api.get<Property[]>('/api/properties', { params: { query, status } }).then((r) => r.data),
+
+  getById: (propertyId: string) =>
+    api.get<Property>(`/api/properties/${propertyId}`).then((r) => r.data),
+
+  getOwners: () =>
+    api.get<User[]>('/api/properties/owners').then((r) => r.data),
+
+  create: (data: CreatePropertyRequest) =>
+    api.post<Property>('/api/properties', data).then((r) => r.data),
+
+  update: (propertyId: string, data: UpdatePropertyRequest) =>
+    api.put<Property>(`/api/properties/${propertyId}`, data).then((r) => r.data),
+};
+
+export const documentApi = {
+  getByProperty: (propertyId: string) =>
+    api.get<PropertyDocument[]>(`/api/properties/${propertyId}/documents`).then((r) => r.data),
+
+  getInfo: (documentId: string) =>
+    api.get<PropertyDocument>(`/api/documents/${documentId}/info`).then((r) => r.data),
+
+  downloadUrl: (documentId: string) =>
+    `http://localhost:8080/api/documents/${documentId}`,
+
+  upload: (propertyId: string, file: File, documentType?: DocumentType) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (documentType) formData.append('documentType', documentType);
+    return api.post<PropertyDocument>(
+      `/api/properties/${propertyId}/documents`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    ).then((r) => r.data);
+  },
+
+  verify: (documentId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post<VerifyDocumentResponse>(
+      `/api/documents/${documentId}/verify`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    ).then((r) => r.data);
+  },
 };
 
 export default api;

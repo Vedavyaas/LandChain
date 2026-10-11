@@ -19,11 +19,18 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.H2Dialect
         format_sql: true
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 15MB
+      max-request-size: 20MB
 
 landchain:
   jwt:
     secret: "3f2a1b8c9d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a"
     expiration-ms: 86400000   # 24 hours
+  storage:
+    upload-dir: "storage/documents"
 
 logging:
   level:

@@ -15,8 +15,8 @@ const INITIAL_MEMBERS: User[] = [
   { id: 6,  username: 'owner1',      fullName: 'Demo Owner Alpha',   email: 'owner1@demo.landchain.local',    role: 'OWNER',      enabled: true, createdAt: '2026-10-11T10:05:00' },
   { id: 7,  username: 'owner2',      fullName: 'Demo Owner Beta',    email: 'owner2@demo.landchain.local',    role: 'OWNER',      enabled: true, createdAt: '2026-10-11T10:06:00' },
   { id: 8,  username: 'owner3',      fullName: 'Demo Owner Gamma',   email: 'owner3@demo.landchain.local',    role: 'OWNER',      enabled: true, createdAt: '2026-10-11T10:07:00' },
-  { id: 9,  username: 'buyer1',      fullName: 'Demo Buyer Alpha',   email: 'buyer1@demo.landchain.local',    role: 'BUYER',      enabled: true, createdAt: '2026-10-11T10:08:00' },
-  { id: 10, username: 'buyer2',      fullName: 'Demo Buyer Beta',    email: 'buyer2@demo.landchain.local',    role: 'BUYER',      enabled: true, createdAt: '2026-10-11T10:09:00' },
+  { id: 9,  username: 'buyer1',      fullName: 'Demo Citizen Alpha',   email: 'buyer1@demo.landchain.local',    role: 'OWNER',      enabled: true, createdAt: '2026-10-11T10:08:00' },
+  { id: 10, username: 'buyer2',      fullName: 'Demo Citizen Beta',    email: 'buyer2@demo.landchain.local',    role: 'OWNER',      enabled: true, createdAt: '2026-10-11T10:09:00' },
   { id: 11, username: 'bank1',       fullName: 'Bank Agent Demo 1',  email: 'bank1@demo.landchain.local',     role: 'BANK',       organization: 'Demo Commercial Bank', enabled: true, createdAt: '2026-10-11T10:10:00' },
   { id: 12, username: 'bank2',       fullName: 'Bank Agent Demo 2',  email: 'bank2@demo.landchain.local',     role: 'BANK',       organization: 'Demo Apex Bank',       enabled: true, createdAt: '2026-10-11T10:11:00' },
   { id: 13, username: 'auditor1',    fullName: 'Auditor Desk Demo 1', email: 'auditor1@demo.landchain.local', role: 'AUDITOR',    organization: 'Demo Oversight Bureau', enabled: true, createdAt: '2026-10-11T10:12:00' },
@@ -29,7 +29,7 @@ const INITIAL_LOGS: AuditLog[] = [
   { id: 'log-02', timestamp: new Date(Date.now() - 1000 * 60 * 25).toISOString(), eventType: 'USER_REGISTERED',      actor: 'owner1', target: '@owner1',              details: 'Participant joined registry as OWNER',        status: 'SUCCESS' },
   { id: 'log-03', timestamp: new Date(Date.now() - 1000 * 60 * 40).toISOString(), eventType: 'SEED_ACCOUNTS_LOADED', actor: 'system', target: 'Identity Registry',     details: '14 seed participant accounts verified',       status: 'SUCCESS' },
   { id: 'log-04', timestamp: new Date(Date.now() - 1000 * 60 * 55).toISOString(), eventType: 'RBAC_ENFORCED',         actor: 'system', target: 'Access Control Layer', details: 'Role permissions active across all participant classes', status: 'SUCCESS' },
-  { id: 'log-05', timestamp: new Date(Date.now() - 1000 * 60 * 70).toISOString(), eventType: 'SYSTEM_BOOTSTRAP',      actor: 'system', target: 'LandChain Core',       details: 'Network nodes initialized · Genesis state confirmed', status: 'SUCCESS' },
+  { id: 'log-05', timestamp: new Date(Date.now() - 1000 * 60 * 70).toISOString(), eventType: 'SYSTEM_BOOTSTRAP',      actor: 'system', target: 'LandChain Core',       details: 'Registry core initialized · Centralized state confirmed', status: 'SUCCESS' },
 ];
 
 /* ── Role Workspaces for Desk tab ────────────────────────────────────────── */
@@ -41,14 +41,9 @@ interface RoleWorkspace {
 
 const ROLE_WORKSPACES: Record<Role, RoleWorkspace> = {
   OWNER: {
-    sectionTitle: 'Title Deeds',
-    summary: '0 property titles linked to this account.',
-    buttonLabel: '+ Initiate Transfer',
-  },
-  BUYER: {
-    sectionTitle: 'Purchase Applications',
-    summary: '0 active purchase requests in review.',
-    buttonLabel: '🔍 Search Registry',
+    sectionTitle: 'My Properties & Title Purchases',
+    summary: 'Manage owned cadastral titles and explore the public registry to acquire properties.',
+    buttonLabel: '🏡 My Properties',
   },
   REGISTRAR: {
     sectionTitle: 'Deed Processing Queue',
@@ -81,7 +76,7 @@ const ROLE_WORKSPACES: Record<Role, RoleWorkspace> = {
 const ROLE_ACTIONS: Record<Role, string[]> = {
   ADMIN: [
     'User provisioning & access control',
-    'System configuration & node ops',
+    'System configuration & settings',
     'Audit & security log inspection',
     'Policy & role enforcement',
   ],
@@ -98,16 +93,10 @@ const ROLE_ACTIONS: Record<Role, string[]> = {
     'Public registry maintenance',
   ],
   OWNER: [
-    'View owned land titles',
-    'Initiate title transfer',
-    'Upload deed documents',
-    'Request encumbrance status',
-  ],
-  BUYER: [
-    'Search public registry',
-    'Submit purchase requests',
-    'Verify property encumbrance',
-    'Receive registered deeds',
+    'Manage owned land titles & property records',
+    'Explore public cadastre & initiate purchases',
+    'Inspect deeds & verify SHA-256 signatures',
+    'Check property encumbrance & liens',
   ],
   BANK: [
     'Register mortgage encumbrances',
@@ -247,7 +236,13 @@ const DashboardPage: React.FC = () => {
       {/* Sleek Dynamic Sidebar with sole Logout button */}
       <DynamicSidebar
         activeTab={activeTab}
-        onSelectTab={(tabId) => setActiveTab(tabId as any)}
+        onSelectTab={(tabId) => {
+          if (tabId === 'properties') {
+            navigate('/properties');
+          } else {
+            setActiveTab(tabId as any);
+          }
+        }}
         user={user}
         onLogout={handleLogout}
       />
@@ -380,7 +375,13 @@ const DashboardPage: React.FC = () => {
                       className="lc-btn lc-btn-primary"
                       style={{ padding: '0.5rem 1.1rem', fontSize: '0.8rem' }}
                       onClick={() => {
-                        if (user.role === 'ADMIN') setActiveTab('members');
+                        if (user.role === 'ADMIN') {
+                          setActiveTab('members');
+                        } else if (user.role === 'GOVERNMENT') {
+                          navigate('/properties/register');
+                        } else {
+                          navigate('/properties');
+                        }
                       }}
                     >
                       {user.role === 'ADMIN' ? '👥 Manage Members Workflow' : workspace.buttonLabel}

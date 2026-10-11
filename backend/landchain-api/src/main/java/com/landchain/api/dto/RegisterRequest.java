@@ -24,6 +24,6 @@ public record RegisterRequest(
         @NotNull
         Role role,
 
-        /** Optional for OWNER / BUYER; required for GOVERNMENT / REGISTRAR / BANK */
+        /** Optional for OWNER; required for GOVERNMENT / REGISTRAR / BANK / ADMIN */
         String organization
 ) {}

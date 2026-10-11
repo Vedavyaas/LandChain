@@ -17,7 +17,6 @@ export interface NavItem {
 const getRoleIcon = (role: Role): string => {
   switch (role) {
     case 'OWNER': return '🏠';
-    case 'BUYER': return '🤝';
     case 'REGISTRAR': return '📋';
     case 'GOVERNMENT': return '🏛';
     case 'BANK': return '🏦';
@@ -38,6 +37,9 @@ const DynamicSidebar: React.FC<SidebarProps> = ({
   const navItems: NavItem[] = [
     { id: 'desk', label: 'Desk', icon: getRoleIcon(user.role) },
   ];
+  if (user.role !== 'ADMIN') {
+    navItems.push({ id: 'properties', label: 'Properties', icon: '🏛' });
+  }
   if (user.role === 'ADMIN') {
     navItems.push(
       { id: 'members', label: 'Members', icon: '👥' },

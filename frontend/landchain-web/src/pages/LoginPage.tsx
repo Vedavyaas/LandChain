@@ -3,13 +3,12 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 const SAMPLE_CREDS = [
-  { label: 'Admin',      username: 'admin1',      role: 'ADMIN',      emoji: '🛡' },
-  { label: 'Govt',       username: 'government1',  role: 'GOVERNMENT', emoji: '🏛' },
-  { label: 'Registrar',  username: 'registrar1',   role: 'REGISTRAR',  emoji: '📋' },
-  { label: 'Owner',      username: 'owner1',        role: 'OWNER',      emoji: '🏠' },
-  { label: 'Buyer',      username: 'buyer1',        role: 'BUYER',      emoji: '🤝' },
-  { label: 'Bank',       username: 'bank1',         role: 'BANK',       emoji: '🏦' },
-  { label: 'Auditor',    username: 'auditor1',      role: 'AUDITOR',    emoji: '🔍' },
+  { label: 'Admin',         username: 'admin1',      role: 'ADMIN',      emoji: '🛡' },
+  { label: 'Govt',          username: 'government1',  role: 'GOVERNMENT', emoji: '🏛' },
+  { label: 'Registrar',     username: 'registrar1',   role: 'REGISTRAR',  emoji: '📋' },
+  { label: 'Owner / Buyer', username: 'owner1',        role: 'OWNER',      emoji: '🏠' },
+  { label: 'Bank',          username: 'bank1',         role: 'BANK',       emoji: '🏦' },
+  { label: 'Auditor',       username: 'auditor1',      role: 'AUDITOR',    emoji: '🔍' },
 ];
 
 const LoginPage: React.FC = () => {

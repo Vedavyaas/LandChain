@@ -9,7 +9,6 @@ public enum Role {
     GOVERNMENT,
     REGISTRAR,
     OWNER,
-    BUYER,
     BANK,
     AUDITOR
 }

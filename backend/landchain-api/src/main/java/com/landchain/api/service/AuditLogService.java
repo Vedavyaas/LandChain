@@ -21,7 +21,7 @@ public class AuditLogService {
                 "SYSTEM_BOOTSTRAP",
                 "system",
                 "LandChain Core",
-                "Network nodes initialized · Genesis state confirmed",
+                "Centralized registry initialized · Genesis state confirmed",
                 "SUCCESS"
         );
         log(

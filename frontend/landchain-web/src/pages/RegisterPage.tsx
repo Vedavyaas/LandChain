@@ -11,12 +11,12 @@ interface RoleOption {
 }
 
 const ROLE_OPTIONS: RoleOption[] = [
-  { role: 'OWNER',      emoji: '🏠', title: 'Property Owner', desc: 'Hold & trade titles' },
-  { role: 'BUYER',      emoji: '🤝', title: 'Buyer',          desc: 'Acquire & inspect deeds' },
-  { role: 'REGISTRAR',  emoji: '📋', title: 'Registrar',      desc: 'Verify & execute deeds' },
-  { role: 'GOVERNMENT', emoji: '🏛', title: 'Gov Authority',  desc: 'Municipal land records' },
-  { role: 'BANK',       emoji: '🏦', title: 'Bank / Lender',  desc: 'Mortgage & liens' },
-  { role: 'AUDITOR',    emoji: '🔍', title: 'Auditor',        desc: 'Audit & compliance' },
+  { role: 'OWNER',      emoji: '🏠', title: 'Property Owner & Buyer', desc: 'Own, buy & manage land titles' },
+  { role: 'REGISTRAR',  emoji: '📋', title: 'Registrar',              desc: 'Verify & execute deeds' },
+  { role: 'GOVERNMENT', emoji: '🏛', title: 'Gov Authority',          desc: 'Municipal land records' },
+  { role: 'ADMIN',      emoji: '🛡', title: 'Administrator',          desc: 'System ops & member directory' },
+  { role: 'BANK',       emoji: '🏦', title: 'Bank / Lender',          desc: 'Mortgage & liens' },
+  { role: 'AUDITOR',    emoji: '🔍', title: 'Auditor',                desc: 'Audit & compliance' },
 ];
 
 const RegisterPage: React.FC = () => {
@@ -39,6 +39,74 @@ const RegisterPage: React.FC = () => {
     setError('');
   };
 
+  const fillSampleForRole = (targetRole: Role) => {
+    const randSuffix = Math.floor(100 + Math.random() * 900);
+    switch (targetRole) {
+      case 'ADMIN':
+        setForm({
+          username: `admin_${randSuffix}`,
+          password: `Pass@123456`,
+          fullName: `Admin Operator ${randSuffix}`,
+          email: `admin${randSuffix}@landchain.local`,
+          role: 'ADMIN',
+          organization: 'LandChain Governance Unit',
+        });
+        break;
+      case 'GOVERNMENT':
+        setForm({
+          username: `gov_${randSuffix}`,
+          password: `Pass@123456`,
+          fullName: `Gov Revenue Officer ${randSuffix}`,
+          email: `gov${randSuffix}@landchain.local`,
+          role: 'GOVERNMENT',
+          organization: 'Karnataka Land Records Department',
+        });
+        break;
+      case 'REGISTRAR':
+        setForm({
+          username: `registrar_${randSuffix}`,
+          password: `Pass@123456`,
+          fullName: `Sub-Registrar ${randSuffix}`,
+          email: `registrar${randSuffix}@landchain.local`,
+          role: 'REGISTRAR',
+          organization: 'Bangalore Sub-Registrar Office',
+        });
+        break;
+      case 'BANK':
+        setForm({
+          username: `bank_${randSuffix}`,
+          password: `Pass@123456`,
+          fullName: `Bank Credit Officer ${randSuffix}`,
+          email: `bank${randSuffix}@landchain.local`,
+          role: 'BANK',
+          organization: 'Apex Commercial Bank',
+        });
+        break;
+      case 'AUDITOR':
+        setForm({
+          username: `auditor_${randSuffix}`,
+          password: `Pass@123456`,
+          fullName: `State Auditor ${randSuffix}`,
+          email: `auditor${randSuffix}@landchain.local`,
+          role: 'AUDITOR',
+          organization: 'Public Audit Bureau',
+        });
+        break;
+      case 'OWNER':
+      default:
+        setForm({
+          username: `owner_${randSuffix}`,
+          password: `Pass@123456`,
+          fullName: `Citizen Property Owner ${randSuffix}`,
+          email: `owner${randSuffix}@landchain.local`,
+          role: 'OWNER',
+          organization: 'Private Landholder',
+        });
+        break;
+    }
+    setError('');
+  };
+
   const handleRoleSelect = (role: Role) => {
     setForm(prev => ({ ...prev, role }));
     setError('');
@@ -58,7 +126,9 @@ const RegisterPage: React.FC = () => {
     }
   };
 
-  const orgRequired = ['GOVERNMENT', 'REGISTRAR', 'BANK'].includes(form.role);
+  const orgRequired = ['GOVERNMENT', 'REGISTRAR', 'BANK', 'ADMIN'].includes(form.role);
+
+  const selectedRoleOption = ROLE_OPTIONS.find(r => r.role === form.role);
 
   return (
     <div className="lc-auth-layout">
@@ -67,6 +137,30 @@ const RegisterPage: React.FC = () => {
           <div className="lc-auth-card__logo">⛓</div>
           <h1 className="lc-auth-card__title">Create Account</h1>
           <p className="lc-auth-card__subtitle">Join the LandChain registry network</p>
+          <div style={{ marginTop: '0.75rem', display: 'flex', justifyContent: 'center' }}>
+            <button
+              type="button"
+              onClick={() => fillSampleForRole(form.role)}
+              className="lc-btn"
+              style={{
+                padding: '0.35rem 0.85rem',
+                fontSize: '0.74rem',
+                fontWeight: 700,
+                backgroundColor: 'rgba(13, 148, 136, 0.15)',
+                border: '1px solid rgba(13, 148, 136, 0.4)',
+                color: '#2dd4bf',
+                borderRadius: '0.5rem',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+              }}
+              title={`Auto-fill sample data for ${selectedRoleOption?.title || 'selected role'}`}
+            >
+              <span>✨</span>
+              <span>Auto-Fill Sample {selectedRoleOption?.title || 'User'}</span>
+            </button>
+          </div>
         </div>
 
         {error && (

@@ -1055,7 +1055,6 @@ body::after {
 .lc-role-badge--GOVERNMENT { background: rgba(251,191,36,0.12);  color: var(--gold);     border: 1px solid rgba(251,191,36,0.3); }
 .lc-role-badge--REGISTRAR  { background: rgba(13,148,136,0.14);  color: #2dd4bf;         border: 1px solid rgba(13,148,136,0.4); }
 .lc-role-badge--OWNER      { background: var(--sky-dim);         color: var(--sky);      border: 1px solid rgba(56,189,248,0.25); }
-.lc-role-badge--BUYER      { background: var(--emerald-dim);     color: var(--emerald);  border: 1px solid rgba(16,185,129,0.25); }
 .lc-role-badge--BANK       { background: var(--orange-dim);      color: var(--orange);   border: 1px solid rgba(249,115,22,0.25); }
 .lc-role-badge--AUDITOR    { background: rgba(148,163,184,0.08); color: #94a3b8;         border: 1px solid rgba(148,163,184,0.2); }
 
