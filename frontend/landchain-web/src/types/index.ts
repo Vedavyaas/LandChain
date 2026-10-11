@@ -14,7 +14,18 @@ export interface User {
   email: string;
   role: Role;
   organization?: string;
+  enabled?: boolean;
   createdAt: string;
+}
+
+export interface AuditLog {
+  id: string;
+  timestamp: string;
+  eventType: string;
+  actor: string;
+  target: string;
+  details: string;
+  status: 'SUCCESS' | 'WARNING' | 'ERROR';
 }
 
 export interface AuthResponse {

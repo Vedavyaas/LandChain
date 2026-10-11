@@ -52,6 +52,10 @@ public class User implements UserDetails {
     @Column(length = 100)
     private String organization;
 
+    @Builder.Default
+    @Column(nullable = false)
+    private boolean enabled = true;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -79,5 +83,5 @@ public class User implements UserDetails {
     @Override
     public boolean isCredentialsNonExpired() { return true; }
     @Override
-    public boolean isEnabled()            { return true; }
+    public boolean isEnabled()            { return enabled; }
 }

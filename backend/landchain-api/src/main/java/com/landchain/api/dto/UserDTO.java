@@ -16,6 +16,7 @@ public record UserDTO(
         String email,
         Role role,
         String organization,
+        boolean enabled,
         LocalDateTime createdAt
 ) {
     /** Factory method to convert a User entity → UserDTO cleanly. */
@@ -27,6 +28,7 @@ public record UserDTO(
                 user.getEmail(),
                 user.getRole(),
                 user.getOrganization(),
+                user.isEnabled(),
                 user.getCreatedAt()
         );
     }

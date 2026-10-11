@@ -17,7 +17,6 @@ const ROLE_OPTIONS: RoleOption[] = [
   { role: 'GOVERNMENT', emoji: '🏛', title: 'Gov Authority',  desc: 'Municipal land records' },
   { role: 'BANK',       emoji: '🏦', title: 'Bank / Lender',  desc: 'Mortgage & liens' },
   { role: 'AUDITOR',    emoji: '🔍', title: 'Auditor',        desc: 'Audit & compliance' },
-  { role: 'ADMIN',      emoji: '🛡', title: 'System Admin',   desc: 'Platform ops' },
 ];
 
 const RegisterPage: React.FC = () => {

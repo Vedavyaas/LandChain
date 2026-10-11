@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { AuthResponse, LoginRequest, RegisterRequest, User } from '../types';
+import type { AuthResponse, LoginRequest, RegisterRequest, User, AuditLog } from '../types';
 
 const api = axios.create({
   baseURL: 'http://localhost:8080',
@@ -35,6 +35,17 @@ export const authApi = {
 
   me: () =>
     api.get<User>('/api/auth/me').then((r) => r.data),
+};
+
+export const adminApi = {
+  getUsers: () =>
+    api.get<User[]>('/api/admin/users').then((r) => r.data),
+
+  toggleUserStatus: (id: number) =>
+    api.patch<User>(`/api/admin/users/${id}/toggle-status`).then((r) => r.data),
+
+  getLogs: () =>
+    api.get<AuditLog[]>('/api/admin/logs').then((r) => r.data),
 };
 
 export default api;

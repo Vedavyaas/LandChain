@@ -33,6 +33,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final AuthenticationManager authenticationManager;
+    private final AuditLogService auditLogService;
 
     /**
      * Register a new user.
@@ -60,15 +61,20 @@ public class AuthService {
         userRepository.save(user);
         log.info("Registered new user: {} with role: {}", user.getUsername(), user.getRole());
 
+        auditLogService.log(
+                "USER_REGISTERED",
+                user.getUsername(),
+                "@" + user.getUsername(),
+                "New account created with role: " + user.getRole(),
+                "SUCCESS"
+        );
+
         String token = jwtTokenProvider.generateToken(user);
         return AuthResponse.of(token, UserDTO.from(user));
     }
 
     /**
      * Authenticate an existing user and return a JWT.
-     *
-     * Spring Security's AuthenticationManager handles the
-     * BCrypt comparison internally via DaoAuthenticationProvider.
      */
     public AuthResponse login(LoginRequest request) {
         Authentication auth = authenticationManager.authenticate(
@@ -77,6 +83,14 @@ public class AuthService {
 
         User user = (User) auth.getPrincipal();
         log.info("User logged in: {}", user.getUsername());
+
+        auditLogService.log(
+                "LOGIN_SUCCESS",
+                user.getUsername(),
+                "@" + user.getUsername(),
+                "Session authenticated with role: " + user.getRole(),
+                "SUCCESS"
+        );
 
         String token = jwtTokenProvider.generateToken(user);
         return AuthResponse.of(token, UserDTO.from(user));

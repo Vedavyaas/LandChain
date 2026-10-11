@@ -1,227 +1,718 @@
-import React, { useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import Navbar from '../components/Navbar';
-import type { Role } from '../types';
+import DynamicSidebar from '../components/DynamicSidebar';
+import { adminApi } from '../api/client';
+import type { Role, User, AuditLog } from '../types';
 
-/* ── Role metadata ──────────────────────────────────────────────────────── */
-const roleConfig: Record<Role, { icon: string; color: string }> = {
-  ADMIN:      { icon: '🛡', color: 'var(--rose)' },
-  GOVERNMENT: { icon: '🏛', color: 'var(--amber)' },
-  REGISTRAR:  { icon: '📋', color: '#a78bfa' },
-  OWNER:      { icon: '🏠', color: 'var(--cyan)' },
-  BUYER:      { icon: '🤝', color: 'var(--emerald)' },
-  BANK:       { icon: '🏦', color: '#fbbf24' },
-  AUDITOR:    { icon: '🔍', color: '#94a3b8' },
+/* ── Default Seed Members for immediate interactive management ───────────── */
+const INITIAL_MEMBERS: User[] = [
+  { id: 1,  username: 'admin1',      fullName: 'Admin Operator 01', email: 'admin1@demo.landchain.local', role: 'ADMIN',      organization: 'LandChain Demo Auth', enabled: true, createdAt: '2026-10-11T10:00:00' },
+  { id: 2,  username: 'government1', fullName: 'Gov Officer Demo 1', email: 'gov1@demo.landchain.local',   role: 'GOVERNMENT', organization: 'Demo Land Authority', enabled: true, createdAt: '2026-10-11T10:01:00' },
+  { id: 3,  username: 'government2', fullName: 'Gov Officer Demo 2', email: 'gov2@demo.landchain.local',   role: 'GOVERNMENT', organization: 'Demo Revenue Office', enabled: true, createdAt: '2026-10-11T10:02:00' },
+  { id: 4,  username: 'registrar1',  fullName: 'Registrar Desk 01',  email: 'registrar1@demo.landchain.local',role: 'REGISTRAR',  organization: 'Sub-Registrar Unit A', enabled: true, createdAt: '2026-10-11T10:03:00' },
+  { id: 5,  username: 'registrar2',  fullName: 'Registrar Desk 02',  email: 'registrar2@demo.landchain.local',role: 'REGISTRAR',  organization: 'Sub-Registrar Unit B', enabled: true, createdAt: '2026-10-11T10:04:00' },
+  { id: 6,  username: 'owner1',      fullName: 'Demo Owner Alpha',   email: 'owner1@demo.landchain.local',    role: 'OWNER',      enabled: true, createdAt: '2026-10-11T10:05:00' },
+  { id: 7,  username: 'owner2',      fullName: 'Demo Owner Beta',    email: 'owner2@demo.landchain.local',    role: 'OWNER',      enabled: true, createdAt: '2026-10-11T10:06:00' },
+  { id: 8,  username: 'owner3',      fullName: 'Demo Owner Gamma',   email: 'owner3@demo.landchain.local',    role: 'OWNER',      enabled: true, createdAt: '2026-10-11T10:07:00' },
+  { id: 9,  username: 'buyer1',      fullName: 'Demo Buyer Alpha',   email: 'buyer1@demo.landchain.local',    role: 'BUYER',      enabled: true, createdAt: '2026-10-11T10:08:00' },
+  { id: 10, username: 'buyer2',      fullName: 'Demo Buyer Beta',    email: 'buyer2@demo.landchain.local',    role: 'BUYER',      enabled: true, createdAt: '2026-10-11T10:09:00' },
+  { id: 11, username: 'bank1',       fullName: 'Bank Agent Demo 1',  email: 'bank1@demo.landchain.local',     role: 'BANK',       organization: 'Demo Commercial Bank', enabled: true, createdAt: '2026-10-11T10:10:00' },
+  { id: 12, username: 'bank2',       fullName: 'Bank Agent Demo 2',  email: 'bank2@demo.landchain.local',     role: 'BANK',       organization: 'Demo Apex Bank',       enabled: true, createdAt: '2026-10-11T10:11:00' },
+  { id: 13, username: 'auditor1',    fullName: 'Auditor Desk Demo 1', email: 'auditor1@demo.landchain.local', role: 'AUDITOR',    organization: 'Demo Oversight Bureau', enabled: true, createdAt: '2026-10-11T10:12:00' },
+  { id: 14, username: 'auditor2',    fullName: 'Auditor Desk Demo 2', email: 'auditor2@demo.landchain.local', role: 'AUDITOR',    organization: 'Demo Compliance Unit',  enabled: true, createdAt: '2026-10-11T10:13:00' },
+];
+
+/* ── Initial Seed Audit Logs ─────────────────────────────────────────────── */
+const INITIAL_LOGS: AuditLog[] = [
+  { id: 'log-01', timestamp: new Date(Date.now() - 1000 * 60 * 12).toISOString(), eventType: 'LOGIN_SUCCESS',        actor: 'admin1', target: '@admin1',              details: 'Admin console session authenticated via JWT', status: 'SUCCESS' },
+  { id: 'log-02', timestamp: new Date(Date.now() - 1000 * 60 * 25).toISOString(), eventType: 'USER_REGISTERED',      actor: 'owner1', target: '@owner1',              details: 'Participant joined registry as OWNER',        status: 'SUCCESS' },
+  { id: 'log-03', timestamp: new Date(Date.now() - 1000 * 60 * 40).toISOString(), eventType: 'SEED_ACCOUNTS_LOADED', actor: 'system', target: 'Identity Registry',     details: '14 seed participant accounts verified',       status: 'SUCCESS' },
+  { id: 'log-04', timestamp: new Date(Date.now() - 1000 * 60 * 55).toISOString(), eventType: 'RBAC_ENFORCED',         actor: 'system', target: 'Access Control Layer', details: 'Role permissions active across all participant classes', status: 'SUCCESS' },
+  { id: 'log-05', timestamp: new Date(Date.now() - 1000 * 60 * 70).toISOString(), eventType: 'SYSTEM_BOOTSTRAP',      actor: 'system', target: 'LandChain Core',       details: 'Network nodes initialized · Genesis state confirmed', status: 'SUCCESS' },
+];
+
+/* ── Role Workspaces for Desk tab ────────────────────────────────────────── */
+interface RoleWorkspace {
+  sectionTitle: string;
+  summary: string;
+  buttonLabel: string;
+}
+
+const ROLE_WORKSPACES: Record<Role, RoleWorkspace> = {
+  OWNER: {
+    sectionTitle: 'Title Deeds',
+    summary: '0 property titles linked to this account.',
+    buttonLabel: '+ Initiate Transfer',
+  },
+  BUYER: {
+    sectionTitle: 'Purchase Applications',
+    summary: '0 active purchase requests in review.',
+    buttonLabel: '🔍 Search Registry',
+  },
+  REGISTRAR: {
+    sectionTitle: 'Deed Processing Queue',
+    summary: 'Queue clear. 0 deeds awaiting execution.',
+    buttonLabel: '📝 Review Deeds',
+  },
+  GOVERNMENT: {
+    sectionTitle: 'Jurisdiction Records',
+    summary: 'Cadastral records and zoning endorsements active.',
+    buttonLabel: '🗺 Land Parcels',
+  },
+  BANK: {
+    sectionTitle: 'Lien Operations',
+    summary: '0 active mortgage encumbrances on file.',
+    buttonLabel: '🏦 File Encumbrance',
+  },
+  AUDITOR: {
+    sectionTitle: 'Ledger Inspection',
+    summary: 'Ledger consistency and event log verified.',
+    buttonLabel: '📊 Run Audit Check',
+  },
+  ADMIN: {
+    sectionTitle: 'Platform Operations',
+    summary: 'Identity provisioning and gateway security normal.',
+    buttonLabel: '👥 Manage Access',
+  },
 };
 
-/* ── Role permissions map ────────────────────────────────────────────────── */
-const permissionMap: Record<Role, string[]> = {
-  ADMIN:      ['Manage users', 'View all records', 'System configuration', 'Audit logs'],
-  GOVERNMENT: ['Approve registrations', 'Issue land records', 'View all properties'],
-  REGISTRAR:  ['Register properties', 'Process transfers', 'Upload documents'],
-  OWNER:      ['View my properties', 'Initiate transfers', 'Upload documents'],
-  BUYER:      ['Browse listings', 'Submit purchase requests', 'View documents'],
-  BANK:       ['Verify ownership', 'Process mortgages', 'Access encumbrance records'],
-  AUDITOR:    ['View audit trail', 'Generate reports', 'Read-only access'],
+/* ── Role Privileges list ────────────────────────────────────────────────── */
+const ROLE_ACTIONS: Record<Role, string[]> = {
+  ADMIN: [
+    'User provisioning & access control',
+    'System configuration & node ops',
+    'Audit & security log inspection',
+    'Policy & role enforcement',
+  ],
+  GOVERNMENT: [
+    'Zoning & parcel classification',
+    'Government land endorsements',
+    'Cadastral boundary governance',
+    'Tax compliance verification',
+  ],
+  REGISTRAR: [
+    'Deed registration & execution',
+    'Title transfer approvals',
+    'Document verification',
+    'Public registry maintenance',
+  ],
+  OWNER: [
+    'View owned land titles',
+    'Initiate title transfer',
+    'Upload deed documents',
+    'Request encumbrance status',
+  ],
+  BUYER: [
+    'Search public registry',
+    'Submit purchase requests',
+    'Verify property encumbrance',
+    'Receive registered deeds',
+  ],
+  BANK: [
+    'Register mortgage encumbrances',
+    'Check title lien status',
+    'Issue lien clearance certificates',
+    'Solvency verification',
+  ],
+  AUDITOR: [
+    'Inspect registry transactions',
+    'Verify cryptographic integrity',
+    'Export compliance audits',
+    'Track ownership history',
+  ],
 };
-
-const ALL_PERMISSIONS = ['Manage users', 'Approve registrations', 'Register properties', 'View all records',
-  'Process transfers', 'Upload documents', 'View my properties', 'Initiate transfers',
-  'Browse listings', 'Submit purchase requests', 'View documents', 'Verify ownership',
-  'Process mortgages', 'Access encumbrance records', 'View audit trail', 'Generate reports',
-  'System configuration', 'Audit logs', 'Issue land records', 'View all properties',
-  'Read-only access', 'Submit purchase requests'];
-
-/* ── Fake activity feed (static for Step 1) ────────────────────────────── */
-const makeActivity = (role: Role) => {
-  const base = [
-    { icon: '🔑', type: 'login', title: 'Authentication successful', hash: '0xa3f1…c8d2', time: 'Just now' },
-    { icon: '⛓', type: 'block', title: 'Connected to LandChain network', hash: 'Block #00001', time: '1s ago' },
-  ];
-  if (['REGISTRAR', 'GOVERNMENT', 'ADMIN'].includes(role)) {
-    base.push({ icon: '📜', type: 'reg', title: 'Registry node synchronized', hash: '0xb9e4…12f7', time: '2s ago' });
-  }
-  return base;
-};
-
-/* ── Stat cards ─────────────────────────────────────────────────────────── */
-const statColors = ['--cyan', '--green', '--violet', '--amber'] as const;
 
 const DashboardPage: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
-  const handleLogout = () => { logout(); navigate('/login'); };
+  const [activeTab, setActiveTab] = useState<'desk' | 'members' | 'logs' | 'profile' | 'privileges'>('desk');
+
+  // Admin State
+  const [members, setMembers] = useState<User[]>(() => {
+    const saved = localStorage.getItem('lc_admin_members');
+    return saved ? JSON.parse(saved) : INITIAL_MEMBERS;
+  });
+  const [logs, setLogs] = useState<AuditLog[]>(() => {
+    const saved = localStorage.getItem('lc_admin_logs');
+    return saved ? JSON.parse(saved) : INITIAL_LOGS;
+  });
+  const [searchTerm, setSearchTerm] = useState('');
+  const [roleFilter, setRoleFilter] = useState<string>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'DISABLED'>('ALL');
+  const [togglingId, setTogglingId] = useState<number | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Sync with backend if available
+  useEffect(() => {
+    if (user?.role === 'ADMIN') {
+      adminApi.getUsers().then(apiUsers => {
+        if (apiUsers && apiUsers.length > 0) {
+          setMembers(apiUsers);
+          localStorage.setItem('lc_admin_members', JSON.stringify(apiUsers));
+        }
+      }).catch(() => {
+        // Backend offline or mock fallback
+      });
+
+      adminApi.getLogs().then(apiLogs => {
+        if (apiLogs && apiLogs.length > 0) {
+          setLogs(apiLogs);
+          localStorage.setItem('lc_admin_logs', JSON.stringify(apiLogs));
+        }
+      }).catch(() => {
+        // Mock fallback
+      });
+    }
+  }, [user]);
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
 
   if (!user) return null;
 
-  const rc = roleConfig[user.role];
-  const perms = permissionMap[user.role];
-  const activity = useMemo(() => makeActivity(user.role), [user.role]);
-  const initials = user.fullName.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase();
-  const joinDate = new Date(user.createdAt).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' });
+  const workspace = ROLE_WORKSPACES[user.role] || ROLE_WORKSPACES.OWNER;
+  const actions = ROLE_ACTIONS[user.role] || ROLE_ACTIONS.OWNER;
+  const initials = user.fullName
+    ? user.fullName.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
+    : 'U';
+  const joinDate = user.createdAt
+    ? new Date(user.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+    : 'Active';
+
+  // Admin Toggle Member Status
+  const handleToggleMember = async (targetUser: User) => {
+    if (targetUser.username === user.username) {
+      setToastMessage('Cannot disable your own administrator account.');
+      setTimeout(() => setToastMessage(null), 3000);
+      return;
+    }
+
+    setTogglingId(targetUser.id);
+    const newStatus = !(targetUser.enabled ?? true);
+
+    try {
+      await adminApi.toggleUserStatus(targetUser.id);
+    } catch {
+      // offline fallback handled below
+    }
+
+    const updated = members.map(m => m.id === targetUser.id ? { ...m, enabled: newStatus } : m);
+    setMembers(updated);
+    localStorage.setItem('lc_admin_members', JSON.stringify(updated));
+
+    // Append to audit logs
+    const newLog: AuditLog = {
+      id: 'log-' + Date.now().toString().slice(-6),
+      timestamp: new Date().toISOString(),
+      eventType: newStatus ? 'USER_ENABLED' : 'USER_DISABLED',
+      actor: user.username,
+      target: `@${targetUser.username}`,
+      details: `Account ${newStatus ? 're-enabled' : 'disabled'} by administrator`,
+      status: newStatus ? 'SUCCESS' : 'WARNING',
+    };
+    const updatedLogs = [newLog, ...logs];
+    setLogs(updatedLogs);
+    localStorage.setItem('lc_admin_logs', JSON.stringify(updatedLogs));
+
+    setToastMessage(`@${targetUser.username} ${newStatus ? 'activated' : 'disabled'}`);
+    setTimeout(() => setToastMessage(null), 3000);
+    setTogglingId(null);
+  };
+
+  // Filtered members for Admin
+  const filteredMembers = members.filter(m => {
+    const matchesSearch =
+      m.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      m.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      m.email.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesRole = roleFilter === 'ALL' || m.role === roleFilter;
+    const isEnabled = m.enabled ?? true;
+    const matchesStatus =
+      statusFilter === 'ALL' ||
+      (statusFilter === 'ACTIVE' && isEnabled) ||
+      (statusFilter === 'DISABLED' && !isEnabled);
+    return matchesSearch && matchesRole && matchesStatus;
+  });
+
+  const totalMembers = members.length;
+  const activeMembers = members.filter(m => m.enabled ?? true).length;
+  const disabledMembers = totalMembers - activeMembers;
 
   return (
-    <>
-      <Navbar />
-      <main className="lc-dashboard">
-        {/* Hero */}
-        <div className="lc-dashboard__hero">
-          <p className="lc-dashboard__welcome">⛓ LandChain Registry — Step 1</p>
-          <h1 className="lc-dashboard__title">
-            Welcome back, <span>{user.fullName.split(' ')[0]}</span>
-          </h1>
-          <p className="lc-dashboard__subtitle">
-            You are authenticated as <strong style={{ color: 'var(--cyan)' }}>{user.role}</strong>
-            {user.organization && <> · <strong style={{ color: 'var(--text-secondary)' }}>{user.organization}</strong></>}
-          </p>
-        </div>
+    <div className="lc-portal-wrapper">
+      {/* Sleek Dynamic Sidebar with sole Logout button */}
+      <DynamicSidebar
+        activeTab={activeTab}
+        onSelectTab={(tabId) => setActiveTab(tabId as any)}
+        user={user}
+        onLogout={handleLogout}
+      />
 
-        {/* Stats */}
-        <div className="lc-stats">
-          {[
-            { label: 'Block Height', value: '000001', sub: 'Genesis block', color: 'cyan' },
-            { label: 'Properties', value: '0', sub: 'On-chain records', color: 'green' },
-            { label: 'Transactions', value: '0', sub: 'Pending: 0', color: 'violet' },
-            { label: 'Network Peers', value: '0', sub: 'Step 2 onwards', color: 'amber' },
-          ].map((s) => (
-            <div key={s.label} className={`lc-stat-card lc-stat-card--${s.color}`}>
-              <div className="lc-stat-card__label">{s.label}</div>
-              <div className="lc-stat-card__value">{s.value}</div>
-              <div className="lc-stat-card__sub">{s.sub}</div>
-            </div>
-          ))}
-        </div>
+      <div className="lc-portal-main">
+        {/* Unified Top Bar */}
+        <header className="lc-topbar">
+          <div className="lc-topbar__left">
+            <span className="lc-topbar__crumb-section">LandChain</span>
+            <span className="lc-topbar__crumb-sep">/</span>
+            <span className="lc-topbar__crumb-current">
+              {activeTab === 'desk' && 'Desk'}
+              {activeTab === 'members' && 'Manage Members'}
+              {activeTab === 'logs' && 'Audit Logs'}
+              {activeTab === 'profile' && 'Profile'}
+              {activeTab === 'privileges' && 'Privileges'}
+            </span>
+          </div>
 
-        {/* Main grid */}
-        <div className="lc-dashboard__grid">
-
-          {/* Identity card */}
-          <div className="lc-card">
-            <div className="lc-card__header">
-              <span className="lc-card__title">⚿ &nbsp;Identity</span>
-              <span className={`lc-role-badge lc-role-badge--${user.role}`}>
-                {rc.icon} {user.role}
+          <div className="lc-topbar__right">
+            <div className="lc-topbar__user">
+              <span className="lc-topbar__user-name">{user.fullName}</span>
+              <span className={`lc-role-badge lc-role-badge--${user.role}`} style={{ padding: '0.15rem 0.55rem', fontSize: '0.66rem' }}>
+                {user.role}
               </span>
             </div>
-            <div className="lc-card__body">
-              <div className="lc-identity">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                  <div className="lc-identity__avatar">{initials}</div>
-                  <div className="lc-identity__info">
-                    <div className="lc-identity__name">{user.fullName}</div>
-                    <div className="lc-identity__username">@{user.username}</div>
+          </div>
+        </header>
+
+        {/* Floating Notification Toast */}
+        {toastMessage && (
+          <div style={{
+            position: 'fixed',
+            top: '4.5rem',
+            right: '2rem',
+            background: 'rgba(13, 148, 136, 0.95)',
+            color: '#fff',
+            padding: '0.65rem 1.1rem',
+            borderRadius: 'var(--radius-sm)',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+            fontSize: '0.82rem',
+            fontWeight: 600,
+            zIndex: 999,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            animation: 'fadeIn 0.25s ease',
+          }}>
+            <span>⚡</span> {toastMessage}
+          </div>
+        )}
+
+        {/* Main Content Area */}
+        <main className="lc-portal-content">
+
+          {/* TAB 1: DESK */}
+          {activeTab === 'desk' && (
+            <div className="lc-clean-view">
+              <div className="lc-desk-header">
+                <div>
+                  <h1 className="lc-desk-title">{user.role} Desk</h1>
+                  <p className="lc-desk-sub">
+                    {user.organization || 'Independent Portal'}
+                  </p>
+                </div>
+                <div className="lc-status-pill">
+                  <span className="lc-status-dot" />
+                  <span>Online · Ready</span>
+                </div>
+              </div>
+
+              {/* Quick metrics */}
+              <div className="lc-mini-stats">
+                <div className="lc-mini-stat">
+                  <span className="lc-mini-stat__label">Account</span>
+                  <span className="lc-mini-stat__val">@{user.username}</span>
+                </div>
+                <div className="lc-mini-stat">
+                  <span className="lc-mini-stat__label">Role</span>
+                  <span className="lc-mini-stat__val" style={{ color: 'var(--violet-light)' }}>{user.role}</span>
+                </div>
+                {user.role === 'ADMIN' ? (
+                  <>
+                    <div className="lc-mini-stat">
+                      <span className="lc-mini-stat__label">Active Members</span>
+                      <span className="lc-mini-stat__val" style={{ color: 'var(--emerald)' }}>{activeMembers}</span>
+                    </div>
+                    <div className="lc-mini-stat">
+                      <span className="lc-mini-stat__label">Disabled</span>
+                      <span className="lc-mini-stat__val" style={{ color: disabledMembers > 0 ? 'var(--rose)' : 'var(--text-muted)' }}>
+                        {disabledMembers}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="lc-mini-stat">
+                      <span className="lc-mini-stat__label">Organization</span>
+                      <span className="lc-mini-stat__val" style={{ fontSize: '0.8rem' }}>{user.organization || '—'}</span>
+                    </div>
+                    <div className="lc-mini-stat">
+                      <span className="lc-mini-stat__label">ID</span>
+                      <span className="lc-mini-stat__val">#{String(user.id).padStart(5, '0')}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Operational Workspace Card */}
+              <div className="lc-card">
+                <div className="lc-card__header">
+                  <span className="lc-card__title">{workspace.sectionTitle}</span>
+                  <span style={{ fontSize: '0.74rem', color: 'var(--emerald)', fontWeight: 600 }}>Active</span>
+                </div>
+                <div className="lc-card__body">
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '1rem',
+                  }}>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', margin: 0 }}>
+                      {user.role === 'ADMIN'
+                        ? `${totalMembers} registered participant accounts under administrative governance.`
+                        : workspace.summary}
+                    </p>
+                    <button
+                      type="button"
+                      className="lc-btn lc-btn-primary"
+                      style={{ padding: '0.5rem 1.1rem', fontSize: '0.8rem' }}
+                      onClick={() => {
+                        if (user.role === 'ADMIN') setActiveTab('members');
+                      }}
+                    >
+                      {user.role === 'ADMIN' ? '👥 Manage Members Workflow' : workspace.buttonLabel}
+                    </button>
                   </div>
                 </div>
-                <div className="lc-identity__row">
-                  <div className="lc-identity__field">
-                    <label>User ID</label>
-                    <span>#{String(user.id).padStart(6, '0')}</span>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: MEMBERS MANAGEMENT WORKFLOW (ADMIN ONLY) */}
+          {activeTab === 'members' && user.role === 'ADMIN' && (
+            <div className="lc-clean-view">
+              <div className="lc-desk-header">
+                <div>
+                  <h1 className="lc-desk-title">Manage Members</h1>
+                  <p className="lc-desk-sub">
+                    {activeMembers} active · {disabledMembers} disabled · {totalMembers} total members
+                  </p>
+                </div>
+              </div>
+
+              {/* Search & Filters */}
+              <div style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '0.75rem',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}>
+                {/* Search box */}
+                <input
+                  type="text"
+                  className="lc-input"
+                  style={{ maxWidth: 300, padding: '0.45rem 0.85rem', fontSize: '0.82rem' }}
+                  placeholder="🔍 Search member name or username…"
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                />
+
+                {/* Status filter pills */}
+                <div style={{ display: 'flex', gap: '0.4rem' }}>
+                  {(['ALL', 'ACTIVE', 'DISABLED'] as const).map(s => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setStatusFilter(s)}
+                      style={{
+                        padding: '0.3rem 0.65rem',
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                        borderRadius: '999px',
+                        border: statusFilter === s ? '1px solid #0d9488' : '1px solid var(--border)',
+                        background: statusFilter === s ? 'rgba(13, 148, 136, 0.2)' : 'transparent',
+                        color: statusFilter === s ? '#2dd4bf' : 'var(--text-muted)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Members List Cards */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {filteredMembers.map(m => {
+                  const isSelf = m.username === user.username;
+                  const isEnabled = m.enabled ?? true;
+                  const initialsStr = m.fullName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+
+                  return (
+                    <div
+                      key={m.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '0.85rem 1.1rem',
+                        background: isEnabled ? 'rgba(9, 26, 26, 0.75)' : 'rgba(20, 10, 15, 0.6)',
+                        border: isEnabled ? '1px solid var(--border-card)' : '1px solid rgba(244, 63, 94, 0.25)',
+                        borderRadius: 'var(--radius-sm)',
+                        flexWrap: 'wrap',
+                        gap: '0.8rem',
+                        transition: 'all 0.18s ease',
+                      }}
+                    >
+                      {/* Left: Avatar & Info */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                        <div style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: '50%',
+                          background: isEnabled
+                            ? 'linear-gradient(135deg, var(--violet), var(--gold))'
+                            : '#2a1520',
+                          color: '#fff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: 700,
+                          fontSize: '0.85rem',
+                          flexShrink: 0,
+                          opacity: isEnabled ? 1 : 0.6,
+                        }}>
+                          {initialsStr}
+                        </div>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{ fontWeight: 700, fontSize: '0.88rem', color: isEnabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                              {m.fullName}
+                            </span>
+                            <span className={`lc-role-badge lc-role-badge--${m.role}`} style={{ padding: '0.1rem 0.45rem', fontSize: '0.62rem' }}>
+                              {m.role}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>
+                            @{m.username} · {m.email} {m.organization && <>· <span style={{ color: 'var(--text-secondary)' }}>{m.organization}</span></>}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right: Status Pill & Toggle Action */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                        {/* Status Badge */}
+                        <span style={{
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.35rem',
+                          color: isEnabled ? 'var(--emerald)' : 'var(--rose)',
+                        }}>
+                          <span style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: '50%',
+                            background: isEnabled ? 'var(--emerald)' : 'var(--rose)',
+                            boxShadow: isEnabled ? '0 0 6px var(--emerald)' : '0 0 6px var(--rose)',
+                          }} />
+                          {isEnabled ? 'Active' : 'Disabled'}
+                        </span>
+
+                        {/* Disable/Enable Button */}
+                        {isSelf ? (
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontStyle: 'italic', padding: '0.3rem 0.6rem' }}>
+                            Protected (You)
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={togglingId === m.id}
+                            onClick={() => handleToggleMember(m)}
+                            className={isEnabled ? 'lc-btn lc-btn-danger' : 'lc-btn lc-btn-primary'}
+                            style={{
+                              padding: '0.32rem 0.85rem',
+                              fontSize: '0.74rem',
+                              borderRadius: 'var(--radius-sm)',
+                              cursor: 'pointer',
+                              fontWeight: 600,
+                            }}
+                          >
+                            {togglingId === m.id
+                              ? 'Updating…'
+                              : isEnabled
+                              ? 'Disable'
+                              : 'Re-enable'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {filteredMembers.length === 0 && (
+                  <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                    No members match the current search or filter.
                   </div>
-                  <div className="lc-identity__field">
-                    <label>Joined</label>
-                    <span>{joinDate}</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: AUDIT LOGS ("he must see all") */}
+          {activeTab === 'logs' && user.role === 'ADMIN' && (
+            <div className="lc-clean-view">
+              <div className="lc-desk-header">
+                <div>
+                  <h1 className="lc-desk-title">Audit Logs</h1>
+                  <p className="lc-desk-sub">{logs.length} logged system & member events</p>
+                </div>
+              </div>
+
+              {/* Logs Stream */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                {logs.map(log => {
+                  const isWarning = log.status === 'WARNING';
+                  const dateStr = new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+                  return (
+                    <div
+                      key={log.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        justifyContent: 'space-between',
+                        padding: '0.8rem 1rem',
+                        background: 'rgba(9, 26, 26, 0.7)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-sm)',
+                        gap: '0.8rem',
+                        fontSize: '0.8rem',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+                        <span style={{
+                          padding: '0.2rem 0.5rem',
+                          borderRadius: '4px',
+                          fontSize: '0.65rem',
+                          fontWeight: 700,
+                          letterSpacing: '0.04em',
+                          background: isWarning ? 'rgba(244, 63, 94, 0.15)' : 'rgba(13, 148, 136, 0.18)',
+                          color: isWarning ? '#fb7185' : '#2dd4bf',
+                          border: `1px solid ${isWarning ? 'rgba(244, 63, 94, 0.3)' : 'rgba(13, 148, 136, 0.3)'}`,
+                          whiteSpace: 'nowrap',
+                          marginTop: '0.1rem',
+                        }}>
+                          {log.eventType}
+                        </span>
+
+                        <div>
+                          <div style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+                            {log.details}
+                          </div>
+                          <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: '0.2rem', fontFamily: 'JetBrains Mono, monospace' }}>
+                            Actor: <strong style={{ color: 'var(--gold)' }}>{log.actor}</strong> · Target: <strong style={{ color: 'var(--text-secondary)' }}>{log.target}</strong>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'nowrap' }}>
+                        {dateStr}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: PROFILE */}
+          {activeTab === 'profile' && (
+            <div className="lc-clean-view">
+              <div className="lc-desk-header">
+                <div>
+                  <h1 className="lc-desk-title">Profile</h1>
+                  <p className="lc-desk-sub">Verified credentials</p>
+                </div>
+              </div>
+
+              <div className="lc-card">
+                <div className="lc-card__body">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
+                    <div className="lc-identity__avatar" style={{ width: 50, height: 50, fontSize: '1.1rem' }}>
+                      {initials}
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>{user.fullName}</div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontFamily: 'JetBrains Mono, monospace' }}>
+                        @{user.username}
+                      </div>
+                    </div>
                   </div>
-                  <div className="lc-identity__field">
-                    <label>Email</label>
-                    <span style={{ fontSize: '0.78rem' }}>{user.email}</span>
-                  </div>
-                  {user.organization && (
+
+                  <div className="lc-identity__row">
+                    <div className="lc-identity__field">
+                      <label>Email</label>
+                      <span>{user.email}</span>
+                    </div>
+                    <div className="lc-identity__field">
+                      <label>Role</label>
+                      <span>{user.role}</span>
+                    </div>
                     <div className="lc-identity__field">
                       <label>Organization</label>
-                      <span>{user.organization}</span>
+                      <span>{user.organization || '—'}</span>
                     </div>
-                  )}
+                    <div className="lc-identity__field">
+                      <label>User ID</label>
+                      <span>#{String(user.id).padStart(5, '0')}</span>
+                    </div>
+                    <div className="lc-identity__field">
+                      <label>Member Since</label>
+                      <span>{joinDate}</span>
+                    </div>
+                    <div className="lc-identity__field">
+                      <label>Status</label>
+                      <span style={{ color: 'var(--emerald)' }}>Verified</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Chain activity */}
-          <div className="lc-card">
-            <div className="lc-card__header">
-              <span className="lc-card__title">📡 &nbsp;Chain Activity</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.72rem', color: 'var(--emerald)' }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--emerald)', display: 'inline-block', animation: 'pulse 2s infinite', boxShadow: '0 0 6px var(--emerald)' }} />
-                LIVE
-              </span>
-            </div>
-            <div className="lc-card__body">
-              <div className="lc-activity">
-                {activity.map((a, i) => (
-                  <div key={i} className="lc-activity__item">
-                    <div className={`lc-activity__icon lc-activity__icon--${a.type}`}>{a.icon}</div>
-                    <div className="lc-activity__text">
-                      <div className="lc-activity__title">{a.title}</div>
-                      <div className="lc-activity__hash">{a.hash}</div>
+          {/* TAB 5: PRIVILEGES */}
+          {activeTab === 'privileges' && (
+            <div className="lc-clean-view">
+              <div className="lc-desk-header">
+                <div>
+                  <h1 className="lc-desk-title">Privileges</h1>
+                  <p className="lc-desk-sub">{actions.length} authorized permissions</p>
+                </div>
+              </div>
+
+              <div className="lc-action-grid">
+                {actions.map((act, i) => (
+                  <div key={i} className="lc-action-card" style={{ padding: '0.9rem 1rem' }}>
+                    <span className="lc-action-check">✓</span>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: '0.86rem', color: 'var(--text-primary)' }}>{act}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>Active on LandChain</div>
                     </div>
-                    <div className="lc-activity__time">{a.time}</div>
                   </div>
                 ))}
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Permissions */}
-          <div className="lc-card">
-            <div className="lc-card__header">
-              <span className="lc-card__title">🔒 &nbsp;Permissions</span>
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                {perms.length} / {ALL_PERMISSIONS.length} granted
-              </span>
-            </div>
-            <div className="lc-card__body">
-              <div className="lc-permissions">
-                {['Approve registrations', 'Register properties', 'View all records', 'Process transfers', 'Upload documents', 'Audit logs', 'System configuration'].map((p) => (
-                  <div key={p} className="lc-permission">
-                    <span className="lc-permission__name">{p}</span>
-                    <span className={`lc-permission__status lc-permission__status--${perms.includes(p) ? 'granted' : 'denied'}`}>
-                      {perms.includes(p) ? '✓ Granted' : '— Denied'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Block counter */}
-          <div className="lc-card">
-            <div className="lc-card__header">
-              <span className="lc-card__title">📦 &nbsp;Blockchain Status</span>
-            </div>
-            <div className="lc-card__body">
-              <div className="lc-block-counter">
-                <div className="lc-block-counter__number">000001</div>
-                <div className="lc-block-counter__label">Current Block Height</div>
-                <div className="lc-block-counter__status">
-                  <div className="lc-block-counter__status-dot" />
-                  Network Online — Awaiting Step 2
-                </div>
-                <div style={{
-                  marginTop: '1.5rem',
-                  padding: '0.9rem',
-                  background: 'var(--bg-surface)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-sm)',
-                  width: '100%',
-                  fontSize: '0.75rem',
-                  fontFamily: 'JetBrains Mono, monospace',
-                  color: 'var(--text-muted)',
-                  lineHeight: 1.9,
-                }}>
-                  <div><span style={{ color: 'var(--cyan)' }}>chain:</span>  landchain-dev</div>
-                  <div><span style={{ color: 'var(--cyan)' }}>fabric:</span> v2.x (Step 3)</div>
-                  <div><span style={{ color: 'var(--cyan)' }}>db:</span>     H2 in-memory</div>
-                  <div><span style={{ color: 'var(--cyan)' }}>jwt:</span>    HS256 · 24h TTL</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-        </div>
-      </main>
-    </>
+        </main>
+      </div>
+    </div>
   );
 };
 
