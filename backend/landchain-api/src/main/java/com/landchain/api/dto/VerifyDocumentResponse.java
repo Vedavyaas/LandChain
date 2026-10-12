@@ -10,7 +10,10 @@ public record VerifyDocumentResponse(
         DocumentType documentType,
         String storedHash,
         String uploadedHash,
+        String blockchainHash,
         boolean matches,
+        boolean blockchainVerified,
+        String blockchainTxId,
         String message,
         LocalDateTime verifiedAt
 ) {}

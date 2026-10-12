@@ -18,6 +18,8 @@ public record PropertyDTO(
         String propertyType,
         String ownerUsername,
         PropertyStatus status,
+        String blockchainTxId,
+        Long blockchainBlockNumber,
         LocalDateTime createdAt,
         int documentCount,
         List<DocumentDTO> documents
@@ -35,6 +37,8 @@ public record PropertyDTO(
                 p.getPropertyType(),
                 p.getOwnerUsername(),
                 p.getStatus(),
+                p.getBlockchainTxId(),
+                p.getBlockchainBlockNumber(),
                 p.getCreatedAt(),
                 documentCount,
                 documents != null ? documents : List.of()

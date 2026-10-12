@@ -52,6 +52,11 @@ public class Property {
     @Builder.Default
     private PropertyStatus status = PropertyStatus.ACTIVE;
 
+    @Column(length = 64)
+    private String blockchainTxId;
+
+    private Long blockchainBlockNumber;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

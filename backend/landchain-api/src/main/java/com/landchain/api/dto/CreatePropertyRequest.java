@@ -3,6 +3,8 @@ package com.landchain.api.dto;
 import jakarta.validation.constraints.NotBlank;
 
 public record CreatePropertyRequest(
+        String propertyId,
+
         @NotBlank(message = "Survey number is required")
         String surveyNumber,
 

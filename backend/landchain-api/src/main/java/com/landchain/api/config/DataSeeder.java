@@ -50,7 +50,9 @@ public class DataSeeder {
             UserRepository userRepo,
             PasswordEncoder encoder,
             PropertyRepository propertyRepo,
-            DocumentRepository documentRepo
+            DocumentRepository documentRepo,
+            com.landchain.api.blockchain.service.PropertyContractService propertyContractService,
+            com.landchain.api.blockchain.service.DocumentContractService documentContractService
     ) {
         return args -> {
             List<SeedUser> seeds = List.of(
@@ -176,8 +178,13 @@ public class DataSeeder {
                 log.info("All seed users already exist — skipping user seed.");
             }
 
-            // ── SEED PROPERTIES (Step 2) ──────────────────────────────────
+            // ── SEED PROPERTIES & REGISTER ON BLOCKCHAIN (Step 2 & 4) ────────
             if (!propertyRepo.existsByPropertyId("PROP-100201")) {
+                var tx1 = propertyContractService.registerProperty(
+                        "PROP-100201", "142/3A", "Plot 45, Green Meadows Avenue",
+                        "Kengeri", "Bengaluru South", "Bengaluru Urban", "2,400 sq.ft",
+                        "RESIDENTIAL", "owner1", "government1", "GovernmentMSP"
+                );
                 Property p1 = Property.builder()
                         .propertyId("PROP-100201")
                         .surveyNumber("142/3A")
@@ -189,9 +196,16 @@ public class DataSeeder {
                         .propertyType("RESIDENTIAL")
                         .ownerUsername("owner1")
                         .status(PropertyStatus.ACTIVE)
+                        .blockchainTxId(tx1.getTxId())
+                        .blockchainBlockNumber(tx1.getBlockNumber())
                         .build();
                 propertyRepo.save(p1);
 
+                var tx2 = propertyContractService.registerProperty(
+                        "PROP-100202", "88/1B", "Tech Zone Block 4, EPIP",
+                        "Whitefield", "Bengaluru East", "Bengaluru Urban", "15,000 sq.ft",
+                        "COMMERCIAL", "owner2", "government1", "GovernmentMSP"
+                );
                 Property p2 = Property.builder()
                         .propertyId("PROP-100202")
                         .surveyNumber("88/1B")
@@ -203,9 +217,16 @@ public class DataSeeder {
                         .propertyType("COMMERCIAL")
                         .ownerUsername("owner2")
                         .status(PropertyStatus.ACTIVE)
+                        .blockchainTxId(tx2.getTxId())
+                        .blockchainBlockNumber(tx2.getBlockNumber())
                         .build();
                 propertyRepo.save(p2);
 
+                var tx3 = propertyContractService.registerProperty(
+                        "PROP-100203", "314/7", "Greenfield Agricultural Sector",
+                        "Nelamangala", "Nelamangala", "Bengaluru Rural", "2.5 Acres",
+                        "AGRICULTURAL", "owner1", "government1", "GovernmentMSP"
+                );
                 Property p3 = Property.builder()
                         .propertyId("PROP-100203")
                         .surveyNumber("314/7")
@@ -217,12 +238,14 @@ public class DataSeeder {
                         .propertyType("AGRICULTURAL")
                         .ownerUsername("owner1")
                         .status(PropertyStatus.ACTIVE)
+                        .blockchainTxId(tx3.getTxId())
+                        .blockchainBlockNumber(tx3.getBlockNumber())
                         .build();
                 propertyRepo.save(p3);
 
-                log.info("✓ Seeded 3 Registry Properties: PROP-100201, PROP-100202, PROP-100203");
+                log.info("✓ Seeded and committed 3 Properties to Hyperledger Fabric: PROP-100201, PROP-100202, PROP-100203");
 
-                // Seed sample deed document on disk with real SHA-256
+                // Seed sample deed document on disk with real SHA-256 and register on Fabric
                 try {
                     java.nio.file.Path storageDir = java.nio.file.Paths.get("storage/documents").toAbsolutePath().normalize();
                     java.nio.file.Files.createDirectories(storageDir);
@@ -242,6 +265,10 @@ public class DataSeeder {
 
                     String sha256 = DocumentService.computeSha256(samplePdfBytes);
 
+                    var docTx = documentContractService.registerDocumentHash(
+                            docId, "PROP-100201", "SALE_DEED", sha256, "registrar1", "RegistrarMSP"
+                    );
+
                     Document deedDoc = Document.builder()
                             .documentId(docId)
                             .propertyId("PROP-100201")
@@ -249,10 +276,13 @@ public class DataSeeder {
                             .originalFileName(fileName)
                             .storagePath(filePath.toString())
                             .sha256Hash(sha256)
+                            .blockchainTxId(docTx.getTxId())
+                            .blockchainBlockNumber(docTx.getBlockNumber())
                             .build();
 
                     documentRepo.save(deedDoc);
-                    log.info("✓ Seeded Document [{}] for PROP-100201 (SHA-256: {})", docId, sha256);
+                    log.info("✓ Seeded Document [{}] on Fabric for PROP-100201 (Tx: {}, SHA-256: {})",
+                            docId, docTx.getTxId(), sha256);
                 } catch (Exception e) {
                     log.warn("Could not seed physical sample deed file: {}", e.getMessage());
                 }

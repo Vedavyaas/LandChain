@@ -18,6 +18,7 @@ const PropertyRegisterPage: React.FC = () => {
   const navigate = useNavigate();
 
   const [form, setForm] = useState<CreatePropertyRequest>({
+    propertyId: '',
     surveyNumber: '',
     address: '',
     village: '',
@@ -328,6 +329,45 @@ const PropertyRegisterPage: React.FC = () => {
                 <div className="lc-card__body">
                   <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
 
+                    {/* Property Cadastral ID (Fabric Key) */}
+                    <div className="lc-form-group">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                        <label className="lc-label" htmlFor="propertyId" style={{ margin: 0 }}>
+                          Property Identifier (Fabric Ledger Key) <span style={{ color: 'var(--text-muted)', fontSize: '0.74rem' }}>(Optional)</span>
+                        </label>
+                        <button
+                          type="button"
+                          id="btn-use-prop-tn-0001"
+                          onClick={() => setForm((prev) => ({ ...prev, propertyId: 'PROP-TN-0001' }))}
+                          style={{
+                            background: 'rgba(16, 185, 129, 0.15)',
+                            border: '1px solid rgba(16, 185, 129, 0.4)',
+                            color: '#10b981',
+                            borderRadius: '4px',
+                            padding: '0.18rem 0.55rem',
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                          title="Fill test value PROP-TN-0001"
+                        >
+                          ⚡ Use PROP-TN-0001
+                        </button>
+                      </div>
+                      <input
+                        id="propertyId"
+                        name="propertyId"
+                        className="lc-input"
+                        placeholder="e.g. PROP-TN-0001 (or leave blank to auto-generate)"
+                        value={form.propertyId || ''}
+                        onChange={handleChange}
+                        style={{ fontFamily: 'monospace', letterSpacing: '0.04em', borderColor: form.propertyId === 'PROP-TN-0001' ? '#10b981' : undefined }}
+                      />
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block' }}>
+                        Authoritative state key registered in Hyperledger Fabric chaincode ledger.
+                      </span>
+                    </div>
+
                     {/* Survey Number & Area */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                       <div className="lc-form-group">
@@ -582,7 +622,7 @@ const PropertyRegisterPage: React.FC = () => {
                               </div>
                               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
                                 {ownersList.map((owner) => {
-                                  const isCurrent = form.ownerUsername.toLowerCase() === owner.username.toLowerCase();
+                                  const isCurrent = form.ownerUsername?.toLowerCase() === owner.username.toLowerCase();
                                   return (
                                     <button
                                       key={owner.username}
@@ -750,7 +790,7 @@ const PropertyRegisterPage: React.FC = () => {
                                 </div>
                               ) : (
                                 filteredOwners.map((owner) => {
-                                  const isSelected = form.ownerUsername.toLowerCase() === owner.username.toLowerCase();
+                                  const isSelected = form.ownerUsername?.toLowerCase() === owner.username.toLowerCase();
                                   return (
                                     <button
                                       key={owner.id || owner.username}

@@ -66,12 +66,15 @@ export interface Property {
   propertyType: string;
   ownerUsername?: string;
   status: PropertyStatus;
+  blockchainTxId?: string;
+  blockchainBlockNumber?: number;
   createdAt: string;
   documentCount?: number;
   documents?: PropertyDocument[];
 }
 
 export interface CreatePropertyRequest {
+  propertyId?: string;
   surveyNumber: string;
   address: string;
   village: string;
@@ -80,6 +83,75 @@ export interface CreatePropertyRequest {
   area: string;
   propertyType: string;
   ownerUsername?: string;
+}
+
+export interface BlockchainHistoryRecord {
+  txId: string;
+  blockNumber: number;
+  timestamp: string;
+  propertyId: string;
+  action: string;
+  previousOwner?: string;
+  newOwner?: string;
+  status: string;
+  actor: string;
+  actorMsp: string;
+  details: string;
+}
+
+export interface BlockchainTransaction {
+  txId: string;
+  blockNumber: number;
+  timestamp: string;
+  channelName: string;
+  chaincodeName: string;
+  functionName: string;
+  creatorMspId: string;
+  creator: string;
+  payloadJson: string;
+  validationCode: string;
+  blockHash: string;
+  previousBlockHash?: string;
+}
+
+export interface BlockchainBlock {
+  blockNumber: number;
+  blockHash: string;
+  previousBlockHash: string;
+  timestamp: string;
+  transactionCount: number;
+  transactions: BlockchainTransaction[];
+  channelName: string;
+  dataHash?: string;
+}
+
+export interface BlockchainOverview {
+  blockHeight: number;
+  totalTransactions: number;
+  lastBlockHash: string;
+  genesisBlockHash: string;
+  channelName: string;
+  chaincodeName: string;
+  networkAvailable: boolean;
+  totalProperties: number;
+  totalDocuments: number;
+  totalTransfers: number;
+}
+
+export interface BlockchainTransferRecord {
+  transferId: string;
+  propertyId: string;
+  currentOwner: string;
+  newOwner: string;
+  deedDocumentId?: string;
+  deedSha256Hash?: string;
+  status: 'INITIATED' | 'APPROVED' | 'REJECTED';
+  initiatedBy: string;
+  initiatedAt: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  txId: string;
+  blockNumber: number;
 }
 
 export interface UpdatePropertyRequest {
@@ -108,6 +180,8 @@ export interface PropertyDocument {
   documentType: DocumentType;
   originalFileName: string;
   sha256Hash: string;
+  blockchainTxId?: string;
+  blockchainBlockNumber?: number;
   uploadedAt: string;
 }
 
@@ -117,8 +191,22 @@ export interface VerifyDocumentResponse {
   documentType: DocumentType;
   storedHash: string;
   uploadedHash: string;
+  blockchainHash?: string;
+  blockchainVerified?: boolean;
+  blockchainTxId?: string;
   matches: boolean;
   status?: 'MATCH' | 'MISMATCH';
   message: string;
   verifiedAt: string;
+}
+
+export interface BuyRequest {
+  id: number;
+  requestId: string;
+  propertyId: string;
+  buyerUsername: string;
+  offeredPrice: number;
+  message?: string;
+  status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
+  createdAt: string;
 }

@@ -39,6 +39,11 @@ public class Document {
     @Column(nullable = false, length = 64)
     private String sha256Hash;
 
+    @Column(length = 64)
+    private String blockchainTxId;
+
+    private Long blockchainBlockNumber;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime uploadedAt;
 

@@ -87,6 +87,9 @@ export const documentApi = {
   downloadUrl: (documentId: string) =>
     `http://localhost:8080/api/documents/${documentId}`,
 
+  download: (documentId: string) =>
+    api.get<Blob>(`/api/documents/${documentId}`, { responseType: 'blob' }).then((r) => r.data),
+
   upload: (propertyId: string, file: File, documentType?: DocumentType) => {
     const formData = new FormData();
     formData.append('file', file);
@@ -107,6 +110,74 @@ export const documentApi = {
       { headers: { 'Content-Type': 'multipart/form-data' } }
     ).then((r) => r.data);
   },
+};
+
+export const blockchainApi = {
+  getHistory: (propertyId: string) =>
+    api.get<any[]>(`/api/blockchain/properties/${propertyId}/history`).then((r) => r.data),
+
+  getState: (propertyId: string) =>
+    api.get<any>(`/api/blockchain/properties/${propertyId}/state`).then((r) => r.data),
+
+  getTransaction: (txId: string) =>
+    api.get<any>(`/api/blockchain/transactions/${txId}`).then((r) => r.data),
+
+  getBlocks: () =>
+    api.get<any[]>('/api/blockchain/blocks').then((r) => r.data),
+
+  getTransactions: () =>
+    api.get<any[]>('/api/blockchain/transactions').then((r) => r.data),
+
+  getWorldState: () =>
+    api.get<any>('/api/blockchain/world-state').then((r) => r.data),
+
+  getOverview: () =>
+    api.get<any>('/api/blockchain/overview').then((r) => r.data),
+
+  getStatus: () =>
+    api.get<any>('/api/blockchain/status').then((r) => r.data),
+};
+
+export const transferApi = {
+  initiate: (data: { propertyId: string; newOwner: string; deedDocumentId?: string; remarks?: string }) =>
+    api.post<any>('/api/transfers', data).then((r) => r.data),
+
+  approve: (transferId: string) =>
+    api.post<any>(`/api/transfers/${transferId}/approve`).then((r) => r.data),
+
+  getAll: () =>
+    api.get<any[]>('/api/transfers').then((r) => r.data),
+
+  getById: (transferId: string) =>
+    api.get<any>(`/api/transfers/${transferId}`).then((r) => r.data),
+};
+
+export const mortgageApi = {
+  file: (data: { propertyId: string; amount: number; bankName?: string; documentId?: string; remarks?: string }) =>
+    api.post<any>('/api/mortgages', data).then((r) => r.data),
+
+  release: (propertyId: string) =>
+    api.post<any>(`/api/mortgages/${propertyId}/release`).then((r) => r.data),
+
+  getStatus: (propertyId: string) =>
+    api.get<any>(`/api/mortgages/${propertyId}`).then((r) => r.data),
+};
+
+export const buyRequestApi = {
+  create: (data: { propertyId: string; offeredPrice: number; message?: string }) =>
+    api.post<any>('/api/buy-requests', data).then((r) => r.data),
+
+  getByProperty: (propertyId: string) =>
+    api.get<any[]>(`/api/buy-requests/property/${propertyId}`).then((r) => r.data),
+
+  getMy: () =>
+    api.get<any[]>('/api/buy-requests/my').then((r) => r.data),
+
+  accept: (requestId: string) =>
+    api.post<any>(`/api/buy-requests/${requestId}/accept`).then((r) => r.data),
+
+  reject: (requestId: string) =>
+    api.post<any>(`/api/buy-requests/${requestId}/reject`).then((r) => r.data),
 };
 
 export default api;

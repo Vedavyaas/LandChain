@@ -31,6 +31,11 @@ landchain:
     expiration-ms: 86400000   # 24 hours
   storage:
     upload-dir: "storage/documents"
+  fabric:
+    peer-endpoint: "localhost:7051"
+    channel-name: "landchannel"
+    chaincode-name: "landchain"
+    msp-id: "Org1MSP"
 
 logging:
   level:

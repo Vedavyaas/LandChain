@@ -128,7 +128,7 @@ const DashboardPage: React.FC = () => {
     return saved ? JSON.parse(saved) : INITIAL_LOGS;
   });
   const [searchTerm, setSearchTerm] = useState('');
-  const [roleFilter, setRoleFilter] = useState<string>('ALL');
+  const [roleFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'DISABLED'>('ALL');
   const [togglingId, setTogglingId] = useState<number | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -239,6 +239,8 @@ const DashboardPage: React.FC = () => {
         onSelectTab={(tabId) => {
           if (tabId === 'properties') {
             navigate('/properties');
+          } else if (tabId === 'blockchain') {
+            navigate('/blockchain');
           } else {
             setActiveTab(tabId as any);
           }

@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import DynamicSidebar from '../components/DynamicSidebar';
 import { propertyApi } from '../api/client';
-import type { Property, PropertyStatus } from '../types';
+import type { Property } from '../types';
 
 /* ── Fallback properties for offline resilience ─────────────────────────── */
 const FALLBACK_PROPERTIES: Property[] = [
@@ -62,11 +62,9 @@ const PropertiesPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
-  const [loading, setLoading] = useState(false);
   const [ownerViewTab, setOwnerViewTab] = useState<'MY' | 'ALL'>('MY');
 
   useEffect(() => {
-    setLoading(true);
     propertyApi.getAll()
       .then((data) => {
         if (data && data.length > 0) {
@@ -75,8 +73,7 @@ const PropertiesPage: React.FC = () => {
       })
       .catch(() => {
         // Fallback to initial seed properties
-      })
-      .finally(() => setLoading(false));
+      });
   }, []);
 
   const handleLogout = () => {
@@ -175,6 +172,8 @@ const PropertiesPage: React.FC = () => {
         onSelectTab={(tabId) => {
           if (tabId === 'desk' || tabId === 'profile' || tabId === 'privileges' || tabId === 'members' || tabId === 'logs') {
             navigate('/dashboard');
+          } else if (tabId === 'blockchain') {
+            navigate('/blockchain');
           }
         }}
         user={user}

@@ -9,6 +9,7 @@ import PropertiesPage from './pages/PropertiesPage';
 import PropertyRegisterPage from './pages/PropertyRegisterPage';
 import { PropertyDetailsPage } from './pages/PropertyDetailsPage';
 import { PropertyDocumentsPage } from './pages/PropertyDocumentsPage';
+import BlockchainExplorerPage from './pages/BlockchainExplorerPage';
 
 const App: React.FC = () => (
   <BrowserRouter>
@@ -53,6 +54,14 @@ const App: React.FC = () => (
           element={
             <ProtectedRoute>
               <PropertyDocumentsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/blockchain"
+          element={
+            <ProtectedRoute>
+              <BlockchainExplorerPage />
             </ProtectedRoute>
           }
         />

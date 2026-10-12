@@ -40,6 +40,7 @@ const DynamicSidebar: React.FC<SidebarProps> = ({
   if (user.role !== 'ADMIN') {
     navItems.push({ id: 'properties', label: 'Properties', icon: '🏛' });
   }
+  navItems.push({ id: 'blockchain', label: 'Blockchain', icon: '⛓️' });
   if (user.role === 'ADMIN') {
     navItems.push(
       { id: 'members', label: 'Members', icon: '👥' },

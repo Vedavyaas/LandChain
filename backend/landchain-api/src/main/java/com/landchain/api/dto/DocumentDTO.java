@@ -12,6 +12,8 @@ public record DocumentDTO(
         DocumentType documentType,
         String originalFileName,
         String sha256Hash,
+        String blockchainTxId,
+        Long blockchainBlockNumber,
         LocalDateTime uploadedAt
 ) {
     public static DocumentDTO from(Document d) {
@@ -22,6 +24,8 @@ public record DocumentDTO(
                 d.getDocumentType(),
                 d.getOriginalFileName(),
                 d.getSha256Hash(),
+                d.getBlockchainTxId(),
+                d.getBlockchainBlockNumber(),
                 d.getUploadedAt()
         );
     }

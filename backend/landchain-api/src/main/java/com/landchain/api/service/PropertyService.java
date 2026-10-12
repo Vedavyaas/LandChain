@@ -1,5 +1,8 @@
 package com.landchain.api.service;
 
+import com.landchain.api.blockchain.model.BlockchainPropertyRecord;
+import com.landchain.api.blockchain.model.BlockchainTransaction;
+import com.landchain.api.blockchain.service.PropertyContractService;
 import com.landchain.api.dto.CreatePropertyRequest;
 import com.landchain.api.dto.DocumentDTO;
 import com.landchain.api.dto.PropertyDTO;
@@ -25,16 +28,45 @@ public class PropertyService {
     private final PropertyRepository propertyRepository;
     private final DocumentRepository documentRepository;
     private final AuditLogService auditLogService;
+    private final PropertyContractService propertyContractService;
     private final SecureRandom random = new SecureRandom();
 
     @Transactional
     public PropertyDTO createProperty(CreatePropertyRequest request, String actor) {
-        String propertyId = generateUniquePropertyId();
+        // Step 1: Validate request in Spring Boot & Determine Property ID
+        String propertyId;
+        if (request.propertyId() != null && !request.propertyId().isBlank()) {
+            propertyId = request.propertyId().trim().toUpperCase(Locale.ROOT);
+            if (propertyRepository.existsByPropertyId(propertyId)) {
+                throw new IllegalArgumentException("Property with ID [" + propertyId + "] already exists in registry.");
+            }
+        } else {
+            propertyId = generateUniquePropertyId();
+        }
 
         String ownerUsername = (request.ownerUsername() != null && !request.ownerUsername().isBlank())
                 ? request.ownerUsername().trim()
                 : "owner1";
 
+        String propertyType = request.propertyType().trim().toUpperCase(Locale.ROOT);
+
+        // Step 2 & 3: Invoke Fabric registerProperty() on chaincode and wait for transaction result
+        log.info("⛓️ Invoking Fabric Gateway to register property [{}]...", propertyId);
+        BlockchainTransaction tx = propertyContractService.registerProperty(
+                propertyId,
+                request.surveyNumber().trim(),
+                request.address().trim(),
+                request.village().trim(),
+                request.taluk().trim(),
+                request.district().trim(),
+                request.area().trim(),
+                propertyType,
+                ownerUsername,
+                actor,
+                "GovernmentMSP"
+        );
+
+        // Step 4 & 5: Store and reference resulting blockchain transaction ID in H2 metadata
         Property property = Property.builder()
                 .propertyId(propertyId)
                 .surveyNumber(request.surveyNumber().trim())
@@ -43,22 +75,27 @@ public class PropertyService {
                 .taluk(request.taluk().trim())
                 .district(request.district().trim())
                 .area(request.area().trim())
-                .propertyType(request.propertyType().trim().toUpperCase(Locale.ROOT))
+                .propertyType(propertyType)
                 .ownerUsername(ownerUsername)
                 .status(PropertyStatus.ACTIVE)
+                .blockchainTxId(tx.getTxId())
+                .blockchainBlockNumber(tx.getBlockNumber())
                 .build();
 
         Property saved = propertyRepository.save(property);
-        log.info("Registered property [{}] at Survey {} for owner {} by {}", propertyId, request.surveyNumber(), ownerUsername, actor);
+        log.info("Registered property [{}] on Fabric (TxID: {}, Block: {}) titled to {} by {}",
+                propertyId, tx.getTxId(), tx.getBlockNumber(), ownerUsername, actor);
 
         auditLogService.log(
                 "PROPERTY_REGISTERED",
                 actor,
                 propertyId,
-                "Property registered under Survey " + request.surveyNumber() + " (" + request.village() + ", " + request.district() + ") titled to " + ownerUsername,
+                "Property registered on blockchain ledger (Tx: " + tx.getTxId().substring(0, 16) + "…) under Survey " +
+                        request.surveyNumber() + " titled to @" + ownerUsername,
                 "SUCCESS"
         );
 
+        // Step 6: Return the authoritative result to React
         return PropertyDTO.from(saved, 0);
     }
 
@@ -66,6 +103,28 @@ public class PropertyService {
     public PropertyDTO getProperty(String propertyId) {
         Property property = propertyRepository.findByPropertyId(propertyId)
                 .orElseThrow(() -> new IllegalArgumentException("Property not found: " + propertyId));
+
+        // The blockchain is authoritative for current ownership and status
+        try {
+            BlockchainPropertyRecord onChain = propertyContractService.getProperty(propertyId);
+            if (onChain != null) {
+                property.setOwnerUsername(onChain.getCurrentOwner());
+                if (onChain.getStatus() != null) {
+                    try {
+                        property.setStatus(PropertyStatus.valueOf(onChain.getStatus()));
+                    } catch (Exception ignored) {}
+                }
+                if (onChain.getLastTxId() != null) {
+                    property.setBlockchainTxId(onChain.getLastTxId());
+                }
+                if (onChain.getLastBlockNumber() > 0) {
+                    property.setBlockchainBlockNumber(onChain.getLastBlockNumber());
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Could not sync with on-chain property state for {}: {}", propertyId, e.getMessage());
+        }
+
         List<DocumentDTO> docs = documentRepository.findByPropertyIdOrderByUploadedAtDesc(propertyId).stream()
                 .map(DocumentDTO::from)
                 .toList();
