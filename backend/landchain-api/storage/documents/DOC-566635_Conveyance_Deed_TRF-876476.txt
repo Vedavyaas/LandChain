@@ -1,0 +1,21 @@
+================================================================================
+GOVERNMENT LAND REGISTRY & CADASTRAL RECORD
+OFFICIAL TITLE DEED OF CONVEYANCE (SALE DEED)
+================================================================================
+Property Identification: PROP-TN-0001
+Conveyance Transfer ID: TRF-876476
+Date of Registration: 2026-10-14T13:35:10.168848
+
+GRANTOR (PREVIOUS OWNER): @owner1
+GRANTEE (AUTHORITATIVE NEW OWNER): @buyer1
+
+GOVERNMENT REGISTRATION AUTHORITY:
+Sub-Registrar Authority: @registrar1 (RegistrarMSP)
+Underlying Fabric Transaction: e4f13323a868eb5a741bea9d5d74243a2d52ec936b320ade1b9ee45dbc88f6b7
+Authoritative Ledger: Hyperledger Fabric Channel [landchannel]
+
+LEGAL DECLARATION:
+All rights, title, interest, and possession in the cadastral parcel specified
+above are hereby irrevocably conveyed to the Grantee. This certificate is
+cryptographically anchored and sealed on the LandChain distributed ledger.
+================================================================================

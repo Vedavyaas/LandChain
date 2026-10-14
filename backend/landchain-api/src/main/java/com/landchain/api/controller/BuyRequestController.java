@@ -143,7 +143,9 @@ public class BuyRequestController {
                 offer.getBuyerUsername(),
                 null,
                 actor,
-                "OwnerMSP"
+                "Org1MSP",
+                "Buy Offer " + requestId + " accepted by Owner @" + actor,
+                true
         );
 
         prop.setStatus(PropertyStatus.PENDING_TRANSFER);

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { propertyApi, documentApi, blockchainApi, transferApi, mortgageApi, buyRequestApi } from '../api/client';
-import type { Property, PropertyDocument, BlockchainHistoryRecord, BlockchainTransferRecord, BuyRequest } from '../types';
+import type { Property, PropertyDocument, BlockchainHistoryRecord, BlockchainTransferRecord, BuyRequest, DocumentType } from '../types';
 import { useAuth } from '../context/AuthContext';
 import DynamicSidebar from '../components/DynamicSidebar';
 
@@ -22,8 +22,16 @@ export const PropertyDetailsPage: React.FC = () => {
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [buyerUsername, setBuyerUsername] = useState('buyer1');
   const [selectedDeedId, setSelectedDeedId] = useState('');
+  const [transferRemarks, setTransferRemarks] = useState('');
   const [transferSubmitting, setTransferSubmitting] = useState(false);
   const [transferFeedback, setTransferFeedback] = useState<string | null>(null);
+
+  // Sub-Registrar deed upload & auto-attach on transfer
+  const [registrarDocFile, setRegistrarDocFile] = useState<File | null>(null);
+  const [registrarDocType, setRegistrarDocType] = useState<DocumentType>('SALE_DEED');
+  const [uploadingRegistrarDoc, setUploadingRegistrarDoc] = useState(false);
+  const [autoAttachOnSelect, setAutoAttachOnSelect] = useState(true);
+  const [selectedExistingDocId, setSelectedExistingDocId] = useState('');
 
   // Mortgage modal state (for BANK)
   const [showMortgageModal, setShowMortgageModal] = useState(false);
@@ -31,11 +39,7 @@ export const PropertyDetailsPage: React.FC = () => {
   const [mortgageDeedId, setMortgageDeedId] = useState('');
   const [mortgageSubmitting, setMortgageSubmitting] = useState(false);
 
-  // Buy Request modal state (for BUYER)
-  const [showBuyModal, setShowBuyModal] = useState(false);
-  const [offerPrice, setOfferPrice] = useState('7500000');
-  const [offerMessage, setOfferMessage] = useState('Official purchase offer on registered parcel.');
-  const [buySubmitting, setBuySubmitting] = useState(false);
+
 
   const canApproveTransfer = user?.role === 'REGISTRAR' || user?.role === 'GOVERNMENT';
   const isRegistrar = user?.role === 'REGISTRAR';
@@ -133,15 +137,25 @@ export const PropertyDetailsPage: React.FC = () => {
     setTransferSubmitting(true);
     setTransferFeedback(null);
     try {
-      await transferApi.initiate({
-        propertyId: property.propertyId,
-        newOwner: buyerUsername,
-        deedDocumentId: selectedDeedId || undefined,
-      });
-      setTransferFeedback('✓ Transfer proposal initiated on Hyperledger Fabric! Status set to PENDING_TRANSFER awaiting Registrar review.');
+      if (isCurrentOwner) {
+        await transferApi.initiate({
+          propertyId: property.propertyId,
+          newOwner: buyerUsername,
+          deedDocumentId: selectedDeedId || undefined,
+          remarks: transferRemarks || undefined,
+        });
+        setTransferFeedback('✓ Transfer proposal initiated on Hyperledger Fabric! Status set to PENDING_BUYER_ACCEPTANCE.');
+      } else {
+        await transferApi.initiate({
+          propertyId: property.propertyId,
+          remarks: transferRemarks || undefined,
+        });
+        setTransferFeedback('✓ Purchase transaction initiated on Hyperledger Fabric! Status set to PENDING_OWNER_ACCEPTANCE.');
+      }
       setTimeout(() => {
         setShowTransferModal(false);
         setTransferFeedback(null);
+        setTransferRemarks('');
         loadData();
       }, 1500);
     } catch (err: any) {
@@ -151,11 +165,151 @@ export const PropertyDetailsPage: React.FC = () => {
     }
   };
 
-  const handleApproveTransfer = async (transferId: string) => {
-    if (!window.confirm('Confirm executing title conveyance on Hyperledger Fabric blockchain?')) return;
+  const handleAcceptTransfer = async (transferId: string) => {
+    if (!window.confirm('Confirm accepting this property transfer transaction? Both parties must accept before the Sub-Registrar reviews and executes it.')) return;
     setLoading(true);
     try {
-      await transferApi.approve(transferId);
+      await transferApi.accept(transferId);
+      alert('✓ Transfer transaction accepted! Both parties have accepted; proposal is forwarded to the Sub-Registrar for document upload and execution.');
+      loadData();
+    } catch (err: any) {
+      alert('Failed to accept transfer: ' + (err.response?.data?.message || err.message));
+      setLoading(false);
+    }
+  };
+
+  const handleCancelTransfer = async (transferId: string, askReason: boolean = false) => {
+    let reason = 'Cancelled by user';
+    if (askReason) {
+      const input = window.prompt('Specify reason for cancelling / rejecting this transfer proposal:', 'Discrepancy in documentation / terms');
+      if (input === null) return;
+      if (input.trim()) reason = input.trim();
+    } else {
+      if (!window.confirm('Are you sure you want to cancel this transfer transaction? Property will be restored to ACTIVE.')) return;
+    }
+    setLoading(true);
+    try {
+      await transferApi.cancel(transferId, reason);
+      alert('✓ Transfer transaction cancelled. Property status restored to ACTIVE.');
+      loadData();
+    } catch (err: any) {
+      alert('Failed to cancel transfer: ' + (err.response?.data?.message || err.message));
+      setLoading(false);
+    }
+  };
+
+  // Frontend-level Auto-Attach: Generates authoritative conveyance deed in browser memory and uploads it
+  const handleFrontendAutoAttachDeed = async (trf: BlockchainTransferRecord) => {
+    if (!property) return;
+    setUploadingRegistrarDoc(true);
+    try {
+      const timestamp = new Date().toISOString();
+      const deedText = `================================================================================
+GOVERNMENT LAND REGISTRY & CADASTRAL RECORD
+AUTHORITATIVE DEED OF TITLE TRANSFER & CONVEYANCE (SALE DEED)
+================================================================================
+Cadastral Parcel Identification: ${property.propertyId}
+Cadastral Survey Number: ${property.surveyNumber}
+Revenue Village: ${property.village}
+Taluk / Tahsil: ${property.taluk}
+District: ${property.district}
+Area / Extent: ${property.area} | Parcel Type: ${property.propertyType}
+Conveyance Transfer ID: ${trf.transferId}
+Registration Timestamp: ${timestamp}
+
+GRANTOR (PREVIOUS REGISTERED TITLE HOLDER): @${trf.currentOwner}
+GRANTEE (AUTHORITATIVE NEW BUYER): @${trf.newOwner}
+INITIATED BY: @${trf.initiatedBy} (Mutual Acceptance Complete)
+
+REGISTRATION AUTHORITY:
+Sub-Registrar Authority: @${user?.username || 'registrar1'}
+MSP Organization: RegistrarMSP
+Authoritative Channel: Hyperledger Fabric [landchannel]
+
+LEGAL DECLARATION & COVENANTS:
+In consideration of mutual agreement between Grantor and Grantee,
+all rights, title, interest, claims, and possession in the cadastral parcel
+specified above are hereby fully, freely, and irrevocably conveyed and vested in the Grantee.
+This official instrument is cryptographically sealed, hashed with SHA-256, and recorded
+on the distributed ledger.
+================================================================================`;
+
+      const fileName = `Official_Sale_Deed_${trf.transferId}.txt`;
+      const blob = new Blob([deedText], { type: 'text/plain' });
+      const autoDeedFile = new File([blob], fileName, { type: 'text/plain' });
+
+      await transferApi.uploadDoc(trf.transferId, autoDeedFile, 'SALE_DEED');
+      alert(`✓ Frontend Auto-Attached Official Sale Deed (${fileName})! Cryptographic SHA-256 hash registered on Fabric.`);
+      loadData();
+    } catch (err: any) {
+      alert('Failed to auto-attach deed: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setUploadingRegistrarDoc(false);
+    }
+  };
+
+  const handleAttachExistingDoc = async (transferId: string, docId: string) => {
+    if (!docId) {
+      alert('Please select a document from the dropdown to attach.');
+      return;
+    }
+    setUploadingRegistrarDoc(true);
+    try {
+      await transferApi.attachDoc(transferId, docId);
+      alert(`✓ Document #${docId} successfully attached to transfer proposal!`);
+      loadData();
+    } catch (err: any) {
+      alert('Failed to attach document: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setUploadingRegistrarDoc(false);
+    }
+  };
+
+  const handleRegistrarFileChange = async (e: React.ChangeEvent<HTMLInputElement>, transferId: string) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setRegistrarDocFile(file);
+
+    if (autoAttachOnSelect) {
+      setUploadingRegistrarDoc(true);
+      try {
+        await transferApi.uploadDoc(transferId, file, registrarDocType);
+        alert(`✓ Auto-attached imported file "${file.name}" to transfer! SHA-256 hash registered on Fabric.`);
+        setRegistrarDocFile(null);
+        // Reset file input
+        e.target.value = '';
+        loadData();
+      } catch (err: any) {
+        alert('Failed to auto-attach imported file: ' + (err.response?.data?.message || err.message));
+      } finally {
+        setUploadingRegistrarDoc(false);
+      }
+    }
+  };
+
+  const handleUploadTransferDoc = async (transferId: string) => {
+    if (!registrarDocFile) {
+      alert('Please select a document file to upload.');
+      return;
+    }
+    setUploadingRegistrarDoc(true);
+    try {
+      await transferApi.uploadDoc(transferId, registrarDocFile, registrarDocType);
+      alert('✓ Official deed uploaded and SHA-256 cryptographic hash anchored to Fabric ledger!');
+      setRegistrarDocFile(null);
+      loadData();
+    } catch (err: any) {
+      alert('Failed to upload document: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setUploadingRegistrarDoc(false);
+    }
+  };
+
+  const handleApproveTransfer = async (transferId: string, deedDocId?: string) => {
+    if (!window.confirm('Confirm executing authoritative title conveyance on Hyperledger Fabric blockchain? Ownership will be irrevocably transferred.')) return;
+    setLoading(true);
+    try {
+      await transferApi.approve(transferId, deedDocId);
       alert('✓ Title conveyance successfully committed to Hyperledger Fabric! New owner is now authoritative.');
       loadData();
     } catch (err: any) {
@@ -199,25 +353,7 @@ export const PropertyDetailsPage: React.FC = () => {
     }
   };
 
-  const handleCreateBuyRequest = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!property) return;
-    setBuySubmitting(true);
-    try {
-      await buyRequestApi.create({
-        propertyId: property.propertyId,
-        offeredPrice: parseFloat(offerPrice),
-        message: offerMessage,
-      });
-      alert('✓ Purchase offer submitted to deed owner! Owner can review and accept to initiate Fabric title conveyance.');
-      setShowBuyModal(false);
-      loadData();
-    } catch (err: any) {
-      alert('Failed to submit purchase offer: ' + (err.response?.data?.message || err.message));
-    } finally {
-      setBuySubmitting(false);
-    }
-  };
+
 
   const handleAcceptBuyRequest = async (requestId: string) => {
     if (!window.confirm('Accept purchase offer and initiate title conveyance proposal on Hyperledger Fabric?')) return;
@@ -528,16 +664,16 @@ export const PropertyDetailsPage: React.FC = () => {
                     </button>
                   )}
 
-                  {/* Buyer: Submit Buy Request / Purchase Offer */}
+                  {/* Buyer: Start Transfer / Buy Transaction */}
                   {isPotentialBuyer && property.status === 'ACTIVE' && (
                     <button
                       type="button"
-                      onClick={() => setShowBuyModal(true)}
+                      onClick={() => setShowTransferModal(true)}
                       className="lc-btn"
                       style={{
                         padding: '0.55rem 1.15rem',
                         fontSize: '0.82rem',
-                        background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                        background: 'linear-gradient(135deg, #0d9488, #059669)',
                         color: '#fff',
                         border: 'none',
                         borderRadius: 'var(--radius-sm)',
@@ -548,10 +684,12 @@ export const PropertyDetailsPage: React.FC = () => {
                         gap: '0.5rem',
                       }}
                     >
-                      <span>💼</span>
-                      <span>Make Purchase Offer</span>
+                      <span>🛒</span>
+                      <span>Start Buy Transaction</span>
                     </button>
                   )}
+
+
 
                   <Link
                     to={`/properties/${property.propertyId}/documents`}
@@ -898,77 +1036,704 @@ export const PropertyDetailsPage: React.FC = () => {
                   </div>
                 )}
 
-                {/* Pending Conveyance Review for Sub-Registrar / Government */}
+                {/* Cadastral Title Transfer & Conveyance Workflow */}
                 {(canApproveTransfer || transfers.length > 0) && (
-                  <div className="lc-card" style={{ gridColumn: '1 / -1', border: '1px solid rgba(251, 191, 36, 0.4)', background: 'rgba(251, 191, 36, 0.03)' }}>
-                    <div className="lc-card__header">
-                      <span className="lc-card__title">⚖️ Pending Conveyance Review ({transfers.filter(t => t.status === 'INITIATED').length} Pending)</span>
-                      <span style={{ fontSize: '0.72rem', color: 'var(--gold)', fontWeight: 700 }}>Sub-Registrar Authority Desk</span>
+                  <div
+                    className="lc-card"
+                    style={{
+                      gridColumn: '1 / -1',
+                      border: '1px solid rgba(13, 148, 136, 0.4)',
+                      background: 'linear-gradient(180deg, rgba(13, 148, 136, 0.05) 0%, rgba(15, 23, 42, 0.6) 100%)',
+                    }}
+                  >
+                    <div className="lc-card__header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                        <span className="lc-card__title" style={{ fontSize: '1rem', color: '#fff', fontWeight: 800 }}>
+                          🏛️ Property Title Transfer Workflow
+                        </span>
+                        <span
+                          style={{
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            padding: '0.15rem 0.55rem',
+                            borderRadius: '999px',
+                            background: 'rgba(13, 148, 136, 0.2)',
+                            color: '#2dd4bf',
+                            border: '1px solid rgba(45, 212, 191, 0.3)',
+                          }}
+                        >
+                          {transfers.filter((t) => t.status !== 'APPROVED' && t.status !== 'REJECTED' && t.status !== 'CANCELLED').length} Active
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        Hyperledger Fabric Distributed Conveyance Protocol
+                      </span>
                     </div>
-                    <div className="lc-card__body">
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        {transfers.map((trf) => (
-                          <div
-                            key={trf.transferId}
-                            style={{
-                              background: 'var(--bg-surface)',
-                              border: '1px solid var(--border)',
-                              borderRadius: 'var(--radius-sm)',
-                              padding: '1rem',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              flexWrap: 'wrap',
-                              gap: '1rem',
-                            }}
-                          >
-                            <div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
-                                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#fbbf24', fontSize: '0.8rem' }}>
-                                  {trf.transferId}
-                                </span>
-                                <span style={{
-                                  fontSize: '0.68rem',
-                                  fontWeight: 800,
-                                  padding: '0.15rem 0.45rem',
-                                  borderRadius: '999px',
-                                  background: trf.status === 'APPROVED' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(251, 191, 36, 0.15)',
-                                  color: trf.status === 'APPROVED' ? 'var(--emerald)' : 'var(--gold)',
-                                  border: `1px solid ${trf.status === 'APPROVED' ? 'rgba(16, 185, 129, 0.4)' : 'rgba(251, 191, 36, 0.4)'}`,
-                                }}>
-                                  {trf.status}
-                                </span>
-                              </div>
-                              <p style={{ margin: 0, fontSize: '0.82rem', color: '#fff' }}>
-                                Conveyance from <strong style={{ color: 'var(--gold)' }}>@{trf.currentOwner}</strong> to Buyer <strong style={{ color: 'var(--emerald)' }}>@{trf.newOwner}</strong>
-                              </p>
-                              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                                Initiated: {new Date(trf.initiatedAt).toLocaleString()} · Initial Tx: {trf.txId ? trf.txId.substring(0, 12) + '…' : 'N/A'}
-                              </span>
-                            </div>
 
-                            {trf.status === 'INITIATED' && (
-                              <button
-                                type="button"
-                                onClick={() => handleApproveTransfer(trf.transferId)}
-                                className="lc-btn"
+                    <div className="lc-card__body">
+                      {transfers.length === 0 ? (
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.84rem', margin: '0.5rem 0' }}>
+                          No transfer proposals initiated on this parcel yet.
+                        </p>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                          {transfers.map((trf) => {
+                            const isPendingBuyer = trf.status === 'PENDING_BUYER_ACCEPTANCE';
+                            const isPendingOwner = trf.status === 'PENDING_OWNER_ACCEPTANCE';
+                            const isPendingRegistrar = trf.status === 'PENDING_REGISTRAR' || trf.status === 'INITIATED';
+                            const isApproved = trf.status === 'APPROVED';
+                            const isCancelled = trf.status === 'REJECTED' || trf.status === 'CANCELLED';
+
+                            const isUserDesignatedBuyer = user?.username?.toLowerCase() === trf.newOwner?.toLowerCase();
+                            const isUserCurrentOwner = user?.username?.toLowerCase() === trf.currentOwner?.toLowerCase();
+
+                            // Determine status badge styling
+                            let badgeBg = 'rgba(251, 191, 36, 0.15)';
+                            let badgeColor = '#fbbf24';
+                            let badgeBorder = 'rgba(251, 191, 36, 0.4)';
+                            let statusLabel: string = trf.status;
+
+                            if (isApproved) {
+                              badgeBg = 'rgba(16, 185, 129, 0.15)';
+                              badgeColor = '#34d399';
+                              badgeBorder = 'rgba(16, 185, 129, 0.4)';
+                              statusLabel = '✓ CONVEYED ON-CHAIN';
+                            } else if (isCancelled) {
+                              badgeBg = 'rgba(244, 63, 94, 0.15)';
+                              badgeColor = '#f87171';
+                              badgeBorder = 'rgba(244, 63, 94, 0.4)';
+                              statusLabel = '✗ CANCELLED';
+                            } else if (isPendingRegistrar) {
+                              badgeBg = 'rgba(6, 182, 212, 0.15)';
+                              badgeColor = '#22d3ee';
+                              badgeBorder = 'rgba(6, 182, 212, 0.4)';
+                              statusLabel = '⚖️ AWAITING SUB-REGISTRAR';
+                            } else if (isPendingBuyer) {
+                              statusLabel = `⏳ AWAITING BUYER ACCEPTANCE (@${trf.newOwner})`;
+                            } else if (isPendingOwner) {
+                              statusLabel = `⏳ AWAITING OWNER ACCEPTANCE (@${trf.currentOwner})`;
+                            }
+
+                            return (
+                              <div
+                                key={trf.transferId}
                                 style={{
-                                  padding: '0.5rem 1.1rem',
-                                  fontSize: '0.78rem',
-                                  fontWeight: 700,
-                                  background: 'linear-gradient(135deg, #10b981, #059669)',
-                                  color: '#fff',
-                                  border: 'none',
-                                  borderRadius: 'var(--radius-sm)',
-                                  cursor: 'pointer',
+                                  background: 'var(--bg-surface)',
+                                  border: `1px solid ${isPendingRegistrar ? 'rgba(6, 182, 212, 0.4)' : (isApproved ? 'rgba(16, 185, 129, 0.4)' : 'var(--border)')}`,
+                                  borderRadius: 'var(--radius-md)',
+                                  padding: '1.25rem',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: '1rem',
+                                  boxShadow: isPendingRegistrar ? '0 0 20px rgba(6, 182, 212, 0.08)' : 'none',
                                 }}
                               >
-                                ✓ Execute On-Chain Conveyance
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
+                                {/* Header Row */}
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                    <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#fbbf24', fontSize: '0.9rem' }}>
+                                      {trf.transferId}
+                                    </span>
+                                    <span
+                                      style={{
+                                        fontSize: '0.68rem',
+                                        fontWeight: 800,
+                                        padding: '0.2rem 0.6rem',
+                                        borderRadius: '999px',
+                                        background: badgeBg,
+                                        color: badgeColor,
+                                        border: `1px solid ${badgeBorder}`,
+                                        letterSpacing: '0.04em',
+                                      }}
+                                    >
+                                      {statusLabel}
+                                    </span>
+                                  </div>
+                                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                    Initiated on {new Date(trf.initiatedAt).toLocaleString()} by <strong style={{ color: '#fff' }}>@{trf.initiatedBy}</strong>
+                                  </span>
+                                </div>
+
+                                {/* Participants Overview */}
+                                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', fontSize: '0.85rem' }}>
+                                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                                    <span style={{ color: 'var(--text-muted)' }}>Current Owner:</span>
+                                    <strong style={{ color: '#fbbf24' }}>@{trf.currentOwner}</strong>
+                                    {trf.ownerAccepted ? (
+                                      <span style={{ fontSize: '0.7rem', color: '#34d399', fontWeight: 700 }}>✓ Accepted</span>
+                                    ) : (
+                                      <span style={{ fontSize: '0.7rem', color: '#fbbf24', fontWeight: 700 }}>⏳ Pending</span>
+                                    )}
+                                  </div>
+                                  <span style={{ color: 'var(--text-muted)' }}>➔</span>
+                                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                                    <span style={{ color: 'var(--text-muted)' }}>Target Buyer:</span>
+                                    <strong style={{ color: '#34d399' }}>@{trf.newOwner}</strong>
+                                    {trf.buyerAccepted ? (
+                                      <span style={{ fontSize: '0.7rem', color: '#34d399', fontWeight: 700 }}>✓ Accepted</span>
+                                    ) : (
+                                      <span style={{ fontSize: '0.7rem', color: '#fbbf24', fontWeight: 700 }}>⏳ Pending</span>
+                                    )}
+                                  </div>
+                                  {trf.deedDocumentId && (
+                                    <span style={{ fontSize: '0.75rem', color: '#60a5fa', marginLeft: 'auto' }}>
+                                      📎 Deed: <strong>{trf.deedDocumentId}</strong>
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* 4-Step Stepper Progress Bar */}
+                                <div
+                                  style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(4, 1fr)',
+                                    gap: '0.5rem',
+                                    background: 'rgba(0, 0, 0, 0.25)',
+                                    padding: '0.75rem',
+                                    borderRadius: 'var(--radius-sm)',
+                                    border: '1px solid rgba(255, 255, 255, 0.05)',
+                                  }}
+                                >
+                                  {/* Step 1 */}
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#34d399' }}>1. Initiated ✓</span>
+                                    <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>By @{trf.initiatedBy}</span>
+                                  </div>
+                                  {/* Step 2 */}
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                                    <span
+                                      style={{
+                                        fontSize: '0.7rem',
+                                        fontWeight: 700,
+                                        color: trf.ownerAccepted && trf.buyerAccepted ? '#34d399' : '#fbbf24',
+                                      }}
+                                    >
+                                      2. Mutual Acceptance {trf.ownerAccepted && trf.buyerAccepted ? '✓' : '⏳'}
+                                    </span>
+                                    <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                                      {trf.ownerAccepted && trf.buyerAccepted ? 'Both Agreed' : 'Awaiting Peer'}
+                                    </span>
+                                  </div>
+                                  {/* Step 3 */}
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                                    <span
+                                      style={{
+                                        fontSize: '0.7rem',
+                                        fontWeight: 700,
+                                        color: isApproved ? '#34d399' : (isPendingRegistrar ? '#22d3ee' : 'var(--text-muted)'),
+                                      }}
+                                    >
+                                      3. Registrar Review {isApproved ? '✓' : (isPendingRegistrar ? '📂' : '🔒')}
+                                    </span>
+                                    <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                                      {trf.deedDocumentId ? 'Docs Attached' : (isPendingRegistrar ? 'Ready for Docs' : 'Pending Step 2')}
+                                    </span>
+                                  </div>
+                                  {/* Step 4 */}
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                                    <span
+                                      style={{
+                                        fontSize: '0.7rem',
+                                        fontWeight: 700,
+                                        color: isApproved ? '#34d399' : (isCancelled ? '#f87171' : 'var(--text-muted)'),
+                                      }}
+                                    >
+                                      4. Conveyance {isApproved ? '✓' : (isCancelled ? '✗' : '⏳')}
+                                    </span>
+                                    <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                                      {isApproved ? 'Minted on Fabric' : (isCancelled ? 'Cancelled' : 'Pending')}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Action Areas */}
+
+                                {/* Case A: Buyer acceptance required */}
+                                {isPendingBuyer && (
+                                  <div
+                                    style={{
+                                      background: 'rgba(251, 191, 36, 0.08)',
+                                      border: '1px solid rgba(251, 191, 36, 0.3)',
+                                      borderRadius: 'var(--radius-sm)',
+                                      padding: '0.85rem 1rem',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'space-between',
+                                      flexWrap: 'wrap',
+                                      gap: '0.75rem',
+                                    }}
+                                  >
+                                    <div>
+                                      <p style={{ margin: 0, fontSize: '0.82rem', color: '#fff', fontWeight: 600 }}>
+                                        {isUserDesignatedBuyer
+                                          ? `🔔 Action Required: Owner @${trf.currentOwner} has proposed transferring this title to you.`
+                                          : `⏳ Awaiting acceptance from designated buyer @${trf.newOwner}.`}
+                                      </p>
+                                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                        Both owner and buyer must accept before the transaction is escalated to the Sub-Registrar.
+                                      </span>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                      {isUserDesignatedBuyer && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleAcceptTransfer(trf.transferId)}
+                                          className="lc-btn"
+                                          style={{
+                                            padding: '0.5rem 1.1rem',
+                                            fontSize: '0.78rem',
+                                            fontWeight: 700,
+                                            background: 'linear-gradient(135deg, #10b981, #059669)',
+                                            color: '#fff',
+                                            border: 'none',
+                                            borderRadius: 'var(--radius-sm)',
+                                            cursor: 'pointer',
+                                          }}
+                                        >
+                                          ✓ Accept Transfer Proposal
+                                        </button>
+                                      )}
+                                      {(isUserDesignatedBuyer || isUserCurrentOwner || canApproveTransfer) && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleCancelTransfer(trf.transferId, false)}
+                                          className="lc-btn lc-btn-ghost"
+                                          style={{
+                                            padding: '0.5rem 0.9rem',
+                                            fontSize: '0.78rem',
+                                            color: 'var(--rose)',
+                                            borderColor: 'rgba(244, 63, 94, 0.3)',
+                                          }}
+                                        >
+                                          ✗ Decline / Cancel
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Case B: Owner acceptance required */}
+                                {isPendingOwner && (
+                                  <div
+                                    style={{
+                                      background: 'rgba(251, 191, 36, 0.08)',
+                                      border: '1px solid rgba(251, 191, 36, 0.3)',
+                                      borderRadius: 'var(--radius-sm)',
+                                      padding: '0.85rem 1rem',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'space-between',
+                                      flexWrap: 'wrap',
+                                      gap: '0.75rem',
+                                    }}
+                                  >
+                                    <div>
+                                      <p style={{ margin: 0, fontSize: '0.82rem', color: '#fff', fontWeight: 600 }}>
+                                        {isUserCurrentOwner
+                                          ? `🔔 Action Required: Buyer @${trf.newOwner} has initiated a transaction to acquire your parcel.`
+                                          : `⏳ Awaiting acceptance from deed owner @${trf.currentOwner}.`}
+                                      </p>
+                                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                        Both owner and buyer must accept before the transaction is escalated to the Sub-Registrar.
+                                      </span>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                      {isUserCurrentOwner && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleAcceptTransfer(trf.transferId)}
+                                          className="lc-btn"
+                                          style={{
+                                            padding: '0.5rem 1.1rem',
+                                            fontSize: '0.78rem',
+                                            fontWeight: 700,
+                                            background: 'linear-gradient(135deg, #10b981, #059669)',
+                                            color: '#fff',
+                                            border: 'none',
+                                            borderRadius: 'var(--radius-sm)',
+                                            cursor: 'pointer',
+                                          }}
+                                        >
+                                          ✓ Accept Purchase Transaction
+                                        </button>
+                                      )}
+                                      {(isUserDesignatedBuyer || isUserCurrentOwner || canApproveTransfer) && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleCancelTransfer(trf.transferId, false)}
+                                          className="lc-btn lc-btn-ghost"
+                                          style={{
+                                            padding: '0.5rem 0.9rem',
+                                            fontSize: '0.78rem',
+                                            color: 'var(--rose)',
+                                            borderColor: 'rgba(244, 63, 94, 0.3)',
+                                          }}
+                                        >
+                                          ✗ Decline / Cancel
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Case C: Awaiting Sub-Registrar Execution (Both accepted!) */}
+                                {isPendingRegistrar && (
+                                  <div
+                                    style={{
+                                      background: 'rgba(6, 182, 212, 0.05)',
+                                      border: '1px solid rgba(6, 182, 212, 0.3)',
+                                      borderRadius: 'var(--radius-sm)',
+                                      padding: '1rem',
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      gap: '0.85rem',
+                                    }}
+                                  >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                      <div>
+                                        <h4 style={{ margin: 0, fontSize: '0.86rem', color: '#22d3ee', fontWeight: 700 }}>
+                                          ⚖️ Sub-Registrar Conveyance Desk
+                                        </h4>
+                                        <p style={{ margin: '0.2rem 0 0', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                                          Both parties have accepted! The Sub-Registrar must review, upload official deeds, and execute or cancel.
+                                        </p>
+                                      </div>
+                                      {trf.deedDocumentId && (
+                                        <span
+                                          style={{
+                                            fontSize: '0.72rem',
+                                            background: 'rgba(16, 185, 129, 0.15)',
+                                            color: '#34d399',
+                                            padding: '0.2rem 0.5rem',
+                                            borderRadius: '4px',
+                                            border: '1px solid rgba(16, 185, 129, 0.3)',
+                                          }}
+                                        >
+                                          ✓ Official Deed Attached: {trf.deedDocumentId}
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {/* Registrar-only Document Upload & Execution Tools */}
+                                    {canApproveTransfer ? (
+                                      <div
+                                        style={{
+                                          background: 'rgba(0, 0, 0, 0.35)',
+                                          border: '1px solid rgba(255, 255, 255, 0.08)',
+                                          borderRadius: 'var(--radius-sm)',
+                                          padding: '1rem',
+                                          display: 'flex',
+                                          flexDirection: 'column',
+                                          gap: '0.9rem',
+                                        }}
+                                      >
+                                        {/* Status / Alert */}
+                                        {trf.deedDocumentId ? (
+                                          <div
+                                            style={{
+                                              padding: '0.5rem 0.75rem',
+                                              borderRadius: 'var(--radius-sm)',
+                                              background: 'rgba(16, 185, 129, 0.12)',
+                                              border: '1px solid rgba(16, 185, 129, 0.3)',
+                                              display: 'flex',
+                                              alignItems: 'center',
+                                              justifyContent: 'space-between',
+                                              flexWrap: 'wrap',
+                                              gap: '0.4rem',
+                                            }}
+                                          >
+                                            <span style={{ fontSize: '0.78rem', color: '#34d399', fontWeight: 600 }}>
+                                              ✓ Deed Attached: <strong>Doc #{trf.deedDocumentId}</strong> (Cryptographic SHA-256 registered on-chain)
+                                            </span>
+                                            <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.6)' }}>
+                                              Ready for final conveyance execution
+                                            </span>
+                                          </div>
+                                        ) : (
+                                          <div
+                                            style={{
+                                              padding: '0.5rem 0.75rem',
+                                              borderRadius: 'var(--radius-sm)',
+                                              background: 'rgba(245, 158, 11, 0.1)',
+                                              border: '1px solid rgba(245, 158, 11, 0.3)',
+                                              display: 'flex',
+                                              alignItems: 'center',
+                                              justifyContent: 'space-between',
+                                              flexWrap: 'wrap',
+                                              gap: '0.4rem',
+                                            }}
+                                          >
+                                            <span style={{ fontSize: '0.76rem', color: '#fbbf24', fontWeight: 600 }}>
+                                              ⚠️ Official Deed Required: Use Frontend Auto-Attach or import a deed document before execution.
+                                            </span>
+                                          </div>
+                                        )}
+
+                                        {/* 1. Frontend-Level Instant Auto-Attach Deed */}
+                                        <div
+                                          style={{
+                                            background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(59, 130, 246, 0.08))',
+                                            border: '1px solid rgba(6, 182, 212, 0.25)',
+                                            borderRadius: 'var(--radius-sm)',
+                                            padding: '0.75rem',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            flexWrap: 'wrap',
+                                            gap: '0.6rem',
+                                          }}
+                                        >
+                                          <div>
+                                            <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#22d3ee', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                              <span>✨</span> Frontend-Level Auto-Attach Deed Generator
+                                            </div>
+                                            <p style={{ margin: '0.2rem 0 0', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                                              Synthesizes legal conveyance deed in browser memory with parcel identifiers, parties, and covenants, hashes with SHA-256, and attaches immediately.
+                                            </p>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleFrontendAutoAttachDeed(trf)}
+                                            disabled={uploadingRegistrarDoc}
+                                            className="lc-btn"
+                                            style={{
+                                              padding: '0.45rem 1rem',
+                                              fontSize: '0.76rem',
+                                              fontWeight: 700,
+                                              background: 'linear-gradient(135deg, #06b6d4, #0284c7)',
+                                              color: '#fff',
+                                              border: 'none',
+                                              borderRadius: 'var(--radius-sm)',
+                                              cursor: uploadingRegistrarDoc ? 'not-allowed' : 'pointer',
+                                              boxShadow: '0 2px 8px rgba(6, 182, 212, 0.3)',
+                                            }}
+                                          >
+                                            {uploadingRegistrarDoc ? 'Generating & Attaching…' : '⚡ Auto-Generate & Attach Deed'}
+                                          </button>
+                                        </div>
+
+                                        {/* 2. File Import with Auto-Attach Option */}
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.4rem' }}>
+                                            <span style={{ fontSize: '0.76rem', fontWeight: 700, color: '#fff' }}>
+                                              📂 Import Deed / Conveyance Document:
+                                            </span>
+                                            <label
+                                              style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '0.4rem',
+                                                fontSize: '0.74rem',
+                                                color: '#38bdf8',
+                                                cursor: 'pointer',
+                                                userSelect: 'none',
+                                                fontWeight: 600,
+                                              }}
+                                            >
+                                              <input
+                                                type="checkbox"
+                                                checked={autoAttachOnSelect}
+                                                onChange={(e) => setAutoAttachOnSelect(e.target.checked)}
+                                              />
+                                              <span>⚡ Auto-attach on file import</span>
+                                            </label>
+                                          </div>
+
+                                          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.6rem' }}>
+                                            <input
+                                              type="file"
+                                              accept=".pdf,.txt,.doc,.docx"
+                                              onChange={(e) => handleRegistrarFileChange(e, trf.transferId)}
+                                              style={{ fontSize: '0.76rem', color: '#fff', maxWidth: 220 }}
+                                            />
+                                            <select
+                                              className="lc-input"
+                                              style={{ width: 'auto', padding: '0.35rem 0.6rem', fontSize: '0.76rem' }}
+                                              value={registrarDocType}
+                                              onChange={(e) => setRegistrarDocType(e.target.value as DocumentType)}
+                                            >
+                                              <option value="SALE_DEED">SALE_DEED (Title Conveyance)</option>
+                                              <option value="CONVEYANCE_DEED">CONVEYANCE_DEED</option>
+                                              <option value="MUTATION_CERTIFICATE">MUTATION_CERTIFICATE</option>
+                                              <option value="TAX_CLEARANCE">TAX_CLEARANCE</option>
+                                              <option value="ENCUMBRANCE_CERTIFICATE">ENCUMBRANCE_CERTIFICATE</option>
+                                            </select>
+                                            {!autoAttachOnSelect && (
+                                              <button
+                                                type="button"
+                                                onClick={() => handleUploadTransferDoc(trf.transferId)}
+                                                disabled={!registrarDocFile || uploadingRegistrarDoc}
+                                                className="lc-btn"
+                                                style={{
+                                                  padding: '0.4rem 0.85rem',
+                                                  fontSize: '0.76rem',
+                                                  fontWeight: 700,
+                                                  background: 'linear-gradient(135deg, #0284c7, #0369a1)',
+                                                  color: '#fff',
+                                                  border: 'none',
+                                                  borderRadius: 'var(--radius-sm)',
+                                                  cursor: registrarDocFile ? 'pointer' : 'not-allowed',
+                                                }}
+                                              >
+                                                {uploadingRegistrarDoc ? 'Uploading…' : '📤 Upload & Attach'}
+                                              </button>
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        {/* 3. Attach Existing Document from Parcel Record */}
+                                        {documents && documents.length > 0 && (
+                                          <div
+                                            style={{
+                                              paddingTop: '0.5rem',
+                                              borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+                                              display: 'flex',
+                                              alignItems: 'center',
+                                              flexWrap: 'wrap',
+                                              gap: '0.5rem',
+                                            }}
+                                          >
+                                            <span style={{ fontSize: '0.73rem', color: 'var(--text-secondary)' }}>
+                                              Or attach existing parcel document:
+                                            </span>
+                                            <select
+                                              className="lc-input"
+                                              style={{ width: 'auto', padding: '0.3rem 0.6rem', fontSize: '0.74rem' }}
+                                              value={selectedExistingDocId}
+                                              onChange={(e) => setSelectedExistingDocId(e.target.value)}
+                                            >
+                                              <option value="">-- Select Existing Document --</option>
+                                              {documents.map((d) => (
+                                                <option key={d.documentId} value={d.documentId}>
+                                                  #{d.documentId} - {d.documentType} ({d.originalFileName || 'file'})
+                                                </option>
+                                              ))}
+                                            </select>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleAttachExistingDoc(trf.transferId, selectedExistingDocId)}
+                                              disabled={!selectedExistingDocId || uploadingRegistrarDoc}
+                                              className="lc-btn lc-btn-ghost"
+                                              style={{
+                                                padding: '0.3rem 0.75rem',
+                                                fontSize: '0.74rem',
+                                                borderColor: 'rgba(6, 182, 212, 0.4)',
+                                                color: '#22d3ee',
+                                                cursor: selectedExistingDocId ? 'pointer' : 'not-allowed',
+                                              }}
+                                            >
+                                              📎 Attach Selected Doc
+                                            </button>
+                                          </div>
+                                        )}
+
+                                        {/* 4. Sub-Registrar Final Execution Actions */}
+                                        <div
+                                          style={{
+                                            display: 'flex',
+                                            gap: '0.75rem',
+                                            marginTop: '0.3rem',
+                                            paddingTop: '0.75rem',
+                                            borderTop: '1px solid rgba(255,255,255,0.08)',
+                                            flexWrap: 'wrap',
+                                          }}
+                                        >
+                                          <button
+                                            type="button"
+                                            onClick={() => handleApproveTransfer(trf.transferId, trf.deedDocumentId)}
+                                            className="lc-btn"
+                                            style={{
+                                              padding: '0.6rem 1.4rem',
+                                              fontSize: '0.82rem',
+                                              fontWeight: 800,
+                                              background: 'linear-gradient(135deg, #10b981, #059669)',
+                                              color: '#fff',
+                                              border: 'none',
+                                              borderRadius: 'var(--radius-sm)',
+                                              cursor: 'pointer',
+                                              boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)',
+                                            }}
+                                          >
+                                            ✓ Accept & Execute On-Chain Conveyance
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleCancelTransfer(trf.transferId, true)}
+                                            className="lc-btn lc-btn-ghost"
+                                            style={{
+                                              padding: '0.6rem 1rem',
+                                              fontSize: '0.82rem',
+                                              color: 'var(--rose)',
+                                              borderColor: 'rgba(244, 63, 94, 0.4)',
+                                            }}
+                                          >
+                                            ✗ Reject & Cancel Transfer
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                        <p style={{ margin: 0, fontSize: '0.8rem', color: '#fff' }}>
+                                          The Sub-Registrar desk is preparing conveyance documentation and executing the transfer.
+                                        </p>
+                                        {(isUserDesignatedBuyer || isUserCurrentOwner) && (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleCancelTransfer(trf.transferId, false)}
+                                            className="lc-btn lc-btn-ghost"
+                                            style={{
+                                              padding: '0.4rem 0.8rem',
+                                              fontSize: '0.75rem',
+                                              color: 'var(--rose)',
+                                              borderColor: 'rgba(244, 63, 94, 0.3)',
+                                            }}
+                                          >
+                                            Withdraw / Cancel Proposal
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* Case D: Approved */}
+                                {isApproved && (
+                                  <div
+                                    style={{
+                                      background: 'rgba(16, 185, 129, 0.08)',
+                                      border: '1px solid rgba(16, 185, 129, 0.3)',
+                                      borderRadius: 'var(--radius-sm)',
+                                      padding: '0.85rem 1rem',
+                                      fontSize: '0.8rem',
+                                      color: '#34d399',
+                                    }}
+                                  >
+                                    <strong>✓ Title Conveyance Formally Executed on Blockchain!</strong> Authoritative Owner: <strong>@{trf.newOwner}</strong>.
+                                    Approved by @{trf.approvedBy || 'Registrar'} · Fabric Block #{trf.blockNumber || 1} · TxID: {trf.txId ? trf.txId.substring(0, 16) + '…' : 'Committed'}.
+                                  </div>
+                                )}
+
+                                {/* Case E: Cancelled */}
+                                {isCancelled && (
+                                  <div
+                                    style={{
+                                      background: 'rgba(244, 63, 94, 0.08)',
+                                      border: '1px solid rgba(244, 63, 94, 0.3)',
+                                      borderRadius: 'var(--radius-sm)',
+                                      padding: '0.85rem 1rem',
+                                      fontSize: '0.8rem',
+                                      color: '#f87171',
+                                    }}
+                                  >
+                                    <strong>✗ Transfer Proposal Cancelled:</strong> {trf.cancellationReason || 'Declined'}.
+                                    {trf.rejectedBy && ` (Actioned by @${trf.rejectedBy})`}. Property status has been restored to ACTIVE.
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1091,7 +1856,7 @@ export const PropertyDetailsPage: React.FC = () => {
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
                   <h3 style={{ margin: 0, color: '#fff', fontSize: '1.15rem', fontWeight: 700 }}>
-                    🔄 Initiate Title Transfer on Fabric
+                    {isCurrentOwner ? '🔄 Initiate Property Transfer Proposal' : '🛒 Initiate Property Purchase Transaction'}
                   </h3>
                   <button
                     type="button"
@@ -1103,8 +1868,9 @@ export const PropertyDetailsPage: React.FC = () => {
                 </div>
 
                 <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: '1.2rem' }}>
-                  Conveying ownership of parcel <strong style={{ color: '#fff' }}>{property.propertyId}</strong>.
-                  The proposal will be signed by Owner MSP and submitted to the Registrar desk for review.
+                  {isCurrentOwner
+                    ? `You are initiating a title conveyance proposal for parcel ${property.propertyId} (${property.surveyNumber}). The designated buyer must accept before the transaction is escalated to the Sub-Registrar desk.`
+                    : `You are initiating a transaction to acquire parcel ${property.propertyId} (${property.surveyNumber}) from Owner @${property.ownerUsername}. The owner must accept before the transaction is escalated to the Sub-Registrar desk.`}
                 </p>
 
                 {transferFeedback && (
@@ -1122,21 +1888,44 @@ export const PropertyDetailsPage: React.FC = () => {
                 )}
 
                 <form onSubmit={handleInitiateTransfer} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {isCurrentOwner ? (
+                    <div className="lc-form-group">
+                      <label className="lc-label">Designated Buyer Account Username *</label>
+                      <input
+                        className="lc-input"
+                        value={buyerUsername}
+                        onChange={(e) => setBuyerUsername(e.target.value)}
+                        placeholder="e.g. buyer1"
+                        required
+                      />
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                        Available seed buyers: <strong>buyer1</strong>, <strong>buyer2</strong>, or any registered citizen.
+                      </span>
+                    </div>
+                  ) : (
+                    <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', marginBottom: '0.35rem' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Current Authoritative Owner:</span>
+                        <strong style={{ color: '#fbbf24' }}>@{property.ownerUsername}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>Initiating Buyer:</span>
+                        <strong style={{ color: '#34d399' }}>@{user?.username}</strong>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="lc-form-group">
-                    <label className="lc-label">Designated Buyer Account Username *</label>
+                    <label className="lc-label">Transaction Remarks / Notes (Optional)</label>
                     <input
                       className="lc-input"
-                      value={buyerUsername}
-                      onChange={(e) => setBuyerUsername(e.target.value)}
-                      placeholder="e.g. buyer1"
-                      required
+                      value={transferRemarks}
+                      onChange={(e) => setTransferRemarks(e.target.value)}
+                      placeholder="e.g. Purchase agreement terms, payment reference, mutual understanding"
                     />
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                      Available seed buyers: <strong>buyer1</strong>, <strong>buyer2</strong>, or any registered citizen.
-                    </span>
                   </div>
 
-                  {documents.length > 0 && (
+                  {isCurrentOwner && documents.length > 0 && (
                     <div className="lc-form-group">
                       <label className="lc-label">Associated Deed Document Proof (Optional)</label>
                       <select
@@ -1167,7 +1956,11 @@ export const PropertyDetailsPage: React.FC = () => {
                       disabled={transferSubmitting}
                       className="lc-btn lc-btn-primary"
                     >
-                      {transferSubmitting ? 'Submitting to Fabric…' : 'Submit Transfer Proposal'}
+                      {transferSubmitting
+                        ? 'Submitting to Fabric…'
+                        : isCurrentOwner
+                          ? 'Submit Transfer Proposal (Awaiting Buyer)'
+                          : 'Submit Purchase Transaction (Awaiting Owner)'}
                     </button>
                   </div>
                 </form>
@@ -1278,100 +2071,7 @@ export const PropertyDetailsPage: React.FC = () => {
             </div>
           )}
 
-          {/* Buy Request Modal for Buyers */}
-          {showBuyModal && property && (
-            <div style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              background: 'rgba(0, 0, 0, 0.75)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 1000,
-              backdropFilter: 'blur(4px)',
-            }}>
-              <div style={{
-                background: '#0f172a',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius-md)',
-                padding: '2rem',
-                width: '100%',
-                maxWidth: 520,
-                boxShadow: '0 20px 40px rgba(0,0,0,0.6)',
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
-                  <h3 style={{ margin: 0, color: '#fff', fontSize: '1.15rem', fontWeight: 700 }}>
-                    💼 Send Purchase Offer / Buy Request
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={() => setShowBuyModal(false)}
-                    style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '1.2rem', cursor: 'pointer' }}
-                  >
-                    ✕
-                  </button>
-                </div>
 
-                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: '1.2rem' }}>
-                  Submitting formal acquisition proposal for parcel <strong style={{ color: '#fff' }}>{property.propertyId}</strong> to owner <strong style={{ color: 'var(--gold)' }}>@{property.ownerUsername}</strong>.
-                </p>
-
-                <form onSubmit={handleCreateBuyRequest} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <div className="lc-form-group">
-                    <label className="lc-label">Purchase Offer Amount (₹) *</label>
-                    <input
-                      type="number"
-                      className="lc-input"
-                      value={offerPrice}
-                      onChange={(e) => setOfferPrice(e.target.value)}
-                      placeholder="e.g. 7500000"
-                      required
-                    />
-                  </div>
-
-                  <div className="lc-form-group">
-                    <label className="lc-label">Message / Terms for Title Deed Owner</label>
-                    <textarea
-                      className="lc-input"
-                      rows={3}
-                      value={offerMessage}
-                      onChange={(e) => setOfferMessage(e.target.value)}
-                      placeholder="e.g. Official purchase offer with pre-approved banking finance."
-                    />
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1rem' }}>
-                    <button
-                      type="button"
-                      onClick={() => setShowBuyModal(false)}
-                      className="lc-btn lc-btn-ghost"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={buySubmitting}
-                      className="lc-btn"
-                      style={{
-                        padding: '0.6rem 1.2rem',
-                        fontWeight: 700,
-                        background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-                        color: '#fff',
-                        border: 'none',
-                        borderRadius: 'var(--radius-sm)',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {buySubmitting ? 'Sending Offer…' : '✓ Send Purchase Offer'}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
 
         </main>
       </div>

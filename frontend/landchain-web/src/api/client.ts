@@ -139,17 +139,45 @@ export const blockchainApi = {
 };
 
 export const transferApi = {
-  initiate: (data: { propertyId: string; newOwner: string; deedDocumentId?: string; remarks?: string }) =>
+  initiate: (data: { propertyId: string; newOwner?: string; deedDocumentId?: string; remarks?: string }) =>
     api.post<any>('/api/transfers', data).then((r) => r.data),
 
-  approve: (transferId: string) =>
-    api.post<any>(`/api/transfers/${transferId}/approve`).then((r) => r.data),
+  accept: (transferId: string) =>
+    api.post<any>(`/api/transfers/${transferId}/accept`).then((r) => r.data),
+
+  cancel: (transferId: string, reason?: string) =>
+    api.post<any>(`/api/transfers/${transferId}/cancel`, { reason }).then((r) => r.data),
+
+  uploadDoc: (transferId: string, file: File, documentType?: DocumentType) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (documentType) {
+      formData.append('documentType', documentType);
+    }
+    return api
+      .post<any>(`/api/transfers/${transferId}/upload-doc`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data);
+  },
+
+  autoAttachDeed: (transferId: string) =>
+    api.post<any>(`/api/transfers/${transferId}/auto-attach-deed`).then((r) => r.data),
+
+  attachDoc: (transferId: string, documentId: string) =>
+    api.post<any>(`/api/transfers/${transferId}/attach-doc/${documentId}`).then((r) => r.data),
+
+  approve: (transferId: string, deedDocumentId?: string) =>
+    api.post<any>(`/api/transfers/${transferId}/approve`, { deedDocumentId }).then((r) => r.data),
 
   getAll: () =>
     api.get<any[]>('/api/transfers').then((r) => r.data),
 
   getById: (transferId: string) =>
     api.get<any>(`/api/transfers/${transferId}`).then((r) => r.data),
+
+  getByProperty: (propertyId: string) =>
+    api.get<any[]>(`/api/transfers/property/${propertyId}`).then((r) => r.data),
 };
 
 export const mortgageApi = {

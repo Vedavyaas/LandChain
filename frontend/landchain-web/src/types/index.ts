@@ -145,11 +145,26 @@ export interface BlockchainTransferRecord {
   newOwner: string;
   deedDocumentId?: string;
   deedSha256Hash?: string;
-  status: 'INITIATED' | 'APPROVED' | 'REJECTED';
+  status:
+    | 'INITIATED'
+    | 'PENDING_BUYER_ACCEPTANCE'
+    | 'PENDING_OWNER_ACCEPTANCE'
+    | 'PENDING_REGISTRAR'
+    | 'APPROVED'
+    | 'REJECTED'
+    | 'CANCELLED';
   initiatedBy: string;
   initiatedAt: string;
+  ownerAccepted?: boolean;
+  ownerAcceptedAt?: string;
+  buyerAccepted?: boolean;
+  buyerAcceptedAt?: string;
   approvedBy?: string;
   approvedAt?: string;
+  rejectedBy?: string;
+  rejectedAt?: string;
+  cancellationReason?: string;
+  remarks?: string;
   txId: string;
   blockNumber: number;
 }
@@ -169,6 +184,10 @@ export interface UpdatePropertyRequest {
 /* ── Document Types (Step 2) ──────────────────────────────────────────────── */
 export type DocumentType =
   | 'SALE_DEED'
+  | 'CONVEYANCE_DEED'
+  | 'MUTATION_CERTIFICATE'
+  | 'ENCUMBRANCE_CERTIFICATE'
+  | 'TAX_CLEARANCE'
   | 'REGISTRATION_DOCUMENT'
   | 'TAX_DOCUMENT'
   | 'OTHER';

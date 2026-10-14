@@ -1,0 +1,29 @@
+================================================================================
+GOVERNMENT LAND REGISTRY & CADASTRAL RECORD
+AUTHORITATIVE DEED OF TITLE TRANSFER & CONVEYANCE (SALE DEED)
+================================================================================
+Cadastral Parcel Identification: PROP-100202
+Cadastral Survey Number: 88/1B
+Revenue Village: Whitefield
+Taluk / Tahsil: Bengaluru East
+District: Bengaluru Urban
+Area / Extent: 15,000 sq.ft | Parcel Type: COMMERCIAL
+Conveyance Transfer ID: TRF-683779
+Registration Timestamp: 2026-10-14T04:54:05.063Z
+
+GRANTOR (PREVIOUS REGISTERED TITLE HOLDER): @owner2
+GRANTEE (AUTHORITATIVE NEW BUYER): @owner1
+INITIATED BY: @owner1 (Mutual Acceptance Complete)
+
+REGISTRATION AUTHORITY:
+Sub-Registrar Authority: @registrar1
+MSP Organization: RegistrarMSP
+Authoritative Channel: Hyperledger Fabric [landchannel]
+
+LEGAL DECLARATION & COVENANTS:
+In consideration of mutual agreement between Grantor and Grantee,
+all rights, title, interest, claims, and possession in the cadastral parcel
+specified above are hereby fully, freely, and irrevocably conveyed and vested in the Grantee.
+This official instrument is cryptographically sealed, hashed with SHA-256, and recorded
+on the distributed ledger.
+================================================================================

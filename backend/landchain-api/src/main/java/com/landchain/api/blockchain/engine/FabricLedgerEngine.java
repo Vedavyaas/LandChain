@@ -242,19 +242,15 @@ public class FabricLedgerEngine {
             String newOwner,
             String deedDocumentId,
             String actor,
-            String callerMspId
+            String callerMspId,
+            String remarks,
+            boolean bothAccepted
     ) {
         checkLiveness();
 
         BlockchainPropertyRecord prop = propertyWorldState.get(propertyId);
         if (prop == null) {
             throw new InvalidPropertyException("Chaincode Error: Property [" + propertyId + "] not found.");
-        }
-
-        // Validate Ownership
-        if (!prop.getCurrentOwner().equalsIgnoreCase(actor)) {
-            throw new InvalidOwnerException("Chaincode Error: Only the authoritative deed holder [@" + prop.getCurrentOwner() +
-                    "] can initiate transfer. Caller is [@" + actor + "].");
         }
 
         // Validate Encumbrance & Freezing
@@ -265,10 +261,52 @@ public class FabricLedgerEngine {
             throw new PropertyMortgagedException("Chaincode Error: Property [" + propertyId + "] has an active MORTGAGE encumbrance. Transfer forbidden.");
         }
         if ("PENDING_TRANSFER".equalsIgnoreCase(prop.getStatus())) {
-            throw new ChaincodeException("Chaincode Error: Property [" + propertyId + "] already has a pending transfer proposal.");
+            throw new ChaincodeException("Chaincode Error: Property [" + propertyId + "] already has a pending transfer transaction.");
         }
 
-        // Validate Deed Hash
+        boolean isOwner = prop.getCurrentOwner().equalsIgnoreCase(actor);
+        String finalCurrentOwner = prop.getCurrentOwner();
+        String finalNewOwner;
+        boolean ownerAccepted;
+        LocalDateTime ownerAcceptedAt = null;
+        boolean buyerAccepted;
+        LocalDateTime buyerAcceptedAt = null;
+        String status;
+
+        LocalDateTime now = LocalDateTime.now();
+
+        if (bothAccepted) {
+            if (newOwner == null || newOwner.isBlank()) {
+                throw new IllegalArgumentException("Buyer username must be specified.");
+            }
+            finalNewOwner = newOwner;
+            ownerAccepted = true;
+            ownerAcceptedAt = now;
+            buyerAccepted = true;
+            buyerAcceptedAt = now;
+            status = "PENDING_REGISTRAR";
+        } else if (isOwner) {
+            if (newOwner == null || newOwner.isBlank()) {
+                throw new IllegalArgumentException("Buyer username must be specified when owner initiates transfer.");
+            }
+            if (newOwner.equalsIgnoreCase(actor)) {
+                throw new IllegalArgumentException("Owner cannot initiate transfer to themselves.");
+            }
+            finalNewOwner = newOwner;
+            ownerAccepted = true;
+            ownerAcceptedAt = now;
+            buyerAccepted = false;
+            status = "PENDING_BUYER_ACCEPTANCE";
+        } else {
+            // Buyer initiated
+            finalNewOwner = actor;
+            ownerAccepted = false;
+            buyerAccepted = true;
+            buyerAcceptedAt = now;
+            status = "PENDING_OWNER_ACCEPTANCE";
+        }
+
+        // Validate Deed Hash if supplied
         String deedHash = null;
         if (deedDocumentId != null && !deedDocumentId.isBlank()) {
             BlockchainDocumentRecord doc = documentWorldState.get(deedDocumentId);
@@ -279,7 +317,6 @@ public class FabricLedgerEngine {
 
         long blockNum = currentBlockNumber.incrementAndGet();
         String txId = generateTxId("initiateTransfer", transferId, actor);
-        LocalDateTime now = LocalDateTime.now();
 
         // Update property state to PENDING_TRANSFER
         prop.setStatus("PENDING_TRANSFER");
@@ -290,18 +327,29 @@ public class FabricLedgerEngine {
         BlockchainTransferRecord transfer = BlockchainTransferRecord.builder()
                 .transferId(transferId)
                 .propertyId(propertyId)
-                .currentOwner(prop.getCurrentOwner())
-                .newOwner(newOwner)
+                .currentOwner(finalCurrentOwner)
+                .newOwner(finalNewOwner)
                 .deedDocumentId(deedDocumentId)
                 .deedSha256Hash(deedHash)
-                .status("INITIATED")
+                .status(status)
                 .initiatedBy(actor)
                 .initiatedAt(now)
+                .ownerAccepted(ownerAccepted)
+                .ownerAcceptedAt(ownerAcceptedAt)
+                .buyerAccepted(buyerAccepted)
+                .buyerAcceptedAt(buyerAcceptedAt)
+                .remarks(remarks)
                 .txId(txId)
                 .blockNumber(blockNum)
                 .build();
 
         transferWorldState.put(transferId, transfer);
+
+        String details = bothAccepted
+                ? "Mutual conveyance proposal initiated between Owner @" + finalCurrentOwner + " and Buyer @" + finalNewOwner + " (Forwarded to Sub-Registrar review)"
+                : (isOwner
+                    ? "Transfer transaction initiated by Owner @" + actor + " to designated Buyer @" + finalNewOwner + " (Awaiting Buyer Acceptance)"
+                    : "Purchase transaction initiated by Buyer @" + actor + " on property owned by @" + finalCurrentOwner + " (Awaiting Owner Acceptance)");
 
         BlockchainHistoryRecord history = BlockchainHistoryRecord.builder()
                 .txId(txId)
@@ -309,33 +357,221 @@ public class FabricLedgerEngine {
                 .timestamp(now)
                 .propertyId(propertyId)
                 .action("TRANSFER_INITIATED")
-                .previousOwner(prop.getCurrentOwner())
-                .newOwner(newOwner)
+                .previousOwner(finalCurrentOwner)
+                .newOwner(finalNewOwner)
                 .status("PENDING_TRANSFER")
                 .actor(actor)
                 .actorMsp(callerMspId)
-                .details("Transfer proposal initiated by @" + actor + " to new buyer @" + newOwner + " (Awaiting Registrar approval)")
+                .details(details)
                 .isDelete(false)
                 .build();
         propertyHistoryStore.computeIfAbsent(propertyId, k -> new ArrayList<>()).add(history);
 
-        String payload = String.format("{\"transferId\":\"%s\",\"propertyId\":\"%s\",\"newOwner\":\"%s\"}", transferId, propertyId, newOwner);
+        String payload = String.format("{\"transferId\":\"%s\",\"propertyId\":\"%s\",\"currentOwner\":\"%s\",\"newOwner\":\"%s\",\"status\":\"%s\"}",
+                transferId, propertyId, finalCurrentOwner, finalNewOwner, status);
         commitTransaction(txId, blockNum, now, "initiateTransfer", callerMspId, actor, payload);
 
-        log.info("⛓️ [Fabric Commit] Block #{} | TxID: {} | initiateTransfer({}) -> Pending buyer: {}",
-                blockNum, txId, transferId, newOwner);
+        log.info("⛓️ [Fabric Commit] Block #{} | TxID: {} | initiateTransfer({}) -> Status: {}, Owner: {}, Buyer: {}",
+                blockNum, txId, transferId, status, finalCurrentOwner, finalNewOwner);
 
+        return transfer;
+    }
+
+    public BlockchainTransferRecord initiateTransfer(
+            String transferId,
+            String propertyId,
+            String newOwner,
+            String deedDocumentId,
+            String actor,
+            String callerMspId
+    ) {
+        return initiateTransfer(transferId, propertyId, newOwner, deedDocumentId, actor, callerMspId, null, false);
+    }
+
+    public synchronized BlockchainTransferRecord acceptTransfer(
+            String transferId,
+            String actor,
+            String callerMspId
+    ) {
+        checkLiveness();
+
+        BlockchainTransferRecord transfer = transferWorldState.get(transferId);
+        if (transfer == null) {
+            throw new ChaincodeException("Chaincode Error: Transfer proposal [" + transferId + "] not found.");
+        }
+
+        if ("APPROVED".equalsIgnoreCase(transfer.getStatus())) {
+            throw new ChaincodeException("Chaincode Error: Transfer [" + transferId + "] is already APPROVED.");
+        }
+        if ("REJECTED".equalsIgnoreCase(transfer.getStatus()) || "CANCELLED".equalsIgnoreCase(transfer.getStatus())) {
+            throw new ChaincodeException("Chaincode Error: Transfer [" + transferId + "] is already CANCELLED.");
+        }
+
+        long blockNum = currentBlockNumber.incrementAndGet();
+        String txId = generateTxId("acceptTransfer", transferId, actor);
+        LocalDateTime now = LocalDateTime.now();
+
+        if ("PENDING_BUYER_ACCEPTANCE".equalsIgnoreCase(transfer.getStatus())) {
+            if (!transfer.getNewOwner().equalsIgnoreCase(actor)) {
+                throw new UnauthorizedOrganizationException("Chaincode Error: Only designated buyer [@" + transfer.getNewOwner() +
+                        "] can accept this transfer proposal. Caller is [@" + actor + "].");
+            }
+            transfer.setBuyerAccepted(true);
+            transfer.setBuyerAcceptedAt(now);
+            transfer.setStatus("PENDING_REGISTRAR");
+        } else if ("PENDING_OWNER_ACCEPTANCE".equalsIgnoreCase(transfer.getStatus())) {
+            if (!transfer.getCurrentOwner().equalsIgnoreCase(actor)) {
+                throw new UnauthorizedOrganizationException("Chaincode Error: Only current owner [@" + transfer.getCurrentOwner() +
+                        "] can accept this transfer proposal. Caller is [@" + actor + "].");
+            }
+            transfer.setOwnerAccepted(true);
+            transfer.setOwnerAcceptedAt(now);
+            transfer.setStatus("PENDING_REGISTRAR");
+        } else if ("PENDING_REGISTRAR".equalsIgnoreCase(transfer.getStatus())) {
+            throw new ChaincodeException("Transfer [" + transferId + "] has already been accepted by both parties and is currently awaiting Sub-Registrar review.");
+        } else {
+            throw new ChaincodeException("Transfer [" + transferId + "] cannot be accepted in current status: " + transfer.getStatus());
+        }
+
+        transfer.setTxId(txId);
+        transfer.setBlockNumber(blockNum);
+
+        BlockchainHistoryRecord history = BlockchainHistoryRecord.builder()
+                .txId(txId)
+                .blockNumber(blockNum)
+                .timestamp(now)
+                .propertyId(transfer.getPropertyId())
+                .action("TRANSFER_MUTUAL_ACCEPTANCE")
+                .previousOwner(transfer.getCurrentOwner())
+                .newOwner(transfer.getNewOwner())
+                .status("PENDING_TRANSFER")
+                .actor(actor)
+                .actorMsp(callerMspId)
+                .details("Transfer proposal " + transferId + " accepted by @" + actor + ". Mutual acceptance confirmed. Escalated to Sub-Registrar for document upload and final review.")
+                .isDelete(false)
+                .build();
+        propertyHistoryStore.computeIfAbsent(transfer.getPropertyId(), k -> new ArrayList<>()).add(history);
+
+        String payload = String.format("{\"transferId\":\"%s\",\"status\":\"PENDING_REGISTRAR\",\"acceptedBy\":\"%s\"}",
+                transferId, actor);
+        commitTransaction(txId, blockNum, now, "acceptTransfer", callerMspId, actor, payload);
+
+        log.info("⛓️ [Fabric Commit] Block #{} | TxID: {} | acceptTransfer({}) by @{} -> Status: PENDING_REGISTRAR",
+                blockNum, txId, transferId, actor);
+
+        return transfer;
+    }
+
+    public synchronized BlockchainTransferRecord cancelTransfer(
+            String transferId,
+            String reason,
+            String actor,
+            String callerMspId
+    ) {
+        checkLiveness();
+
+        BlockchainTransferRecord transfer = transferWorldState.get(transferId);
+        if (transfer == null) {
+            throw new ChaincodeException("Chaincode Error: Transfer proposal [" + transferId + "] not found.");
+        }
+
+        if ("APPROVED".equalsIgnoreCase(transfer.getStatus())) {
+            throw new ChaincodeException("Chaincode Error: Cannot cancel an already conveyed title transfer.");
+        }
+        if ("REJECTED".equalsIgnoreCase(transfer.getStatus()) || "CANCELLED".equalsIgnoreCase(transfer.getStatus())) {
+            throw new ChaincodeException("Chaincode Error: Transfer [" + transferId + "] is already cancelled.");
+        }
+
+        boolean isRegistrar = callerMspId != null && (callerMspId.equalsIgnoreCase("RegistrarMSP") ||
+                callerMspId.equalsIgnoreCase("GovernmentMSP") || callerMspId.equalsIgnoreCase("Org1MSP"));
+        boolean isOwner = actor != null && actor.equalsIgnoreCase(transfer.getCurrentOwner());
+        boolean isBuyer = actor != null && actor.equalsIgnoreCase(transfer.getNewOwner());
+
+        if (!isRegistrar && !isOwner && !isBuyer) {
+            throw new UnauthorizedOrganizationException("Chaincode Error: Caller [@" + actor +
+                    "] is not authorized to cancel this transfer (Must be Owner, Buyer, or Sub-Registrar).");
+        }
+
+        long blockNum = currentBlockNumber.incrementAndGet();
+        String txId = generateTxId("cancelTransfer", transferId, actor);
+        LocalDateTime now = LocalDateTime.now();
+
+        String finalReason = (reason != null && !reason.isBlank()) ? reason : "Cancelled by @" + actor;
+
+        transfer.setStatus("REJECTED");
+        transfer.setRejectedBy(actor);
+        transfer.setRejectedAt(now);
+        transfer.setCancellationReason(finalReason);
+        transfer.setTxId(txId);
+        transfer.setBlockNumber(blockNum);
+
+        // Restore property status to ACTIVE
+        BlockchainPropertyRecord prop = propertyWorldState.get(transfer.getPropertyId());
+        if (prop != null) {
+            prop.setStatus("ACTIVE");
+            prop.setLastTxId(txId);
+            prop.setLastBlockNumber(blockNum);
+            prop.setLastUpdatedAt(now);
+        }
+
+        BlockchainHistoryRecord history = BlockchainHistoryRecord.builder()
+                .txId(txId)
+                .blockNumber(blockNum)
+                .timestamp(now)
+                .propertyId(transfer.getPropertyId())
+                .action("TRANSFER_CANCELLED")
+                .previousOwner(transfer.getCurrentOwner())
+                .newOwner(transfer.getNewOwner())
+                .status("ACTIVE")
+                .actor(actor)
+                .actorMsp(callerMspId)
+                .details("Transfer transaction " + transferId + " cancelled by @" + actor + ". Reason: " + finalReason + " (Property parcel restored to ACTIVE)")
+                .isDelete(false)
+                .build();
+        propertyHistoryStore.computeIfAbsent(transfer.getPropertyId(), k -> new ArrayList<>()).add(history);
+
+        String payload = String.format("{\"transferId\":\"%s\",\"status\":\"REJECTED\",\"cancelledBy\":\"%s\",\"reason\":\"%s\"}",
+                transferId, actor, finalReason);
+        commitTransaction(txId, blockNum, now, "cancelTransfer", callerMspId, actor, payload);
+
+        log.info("⛓️ [Fabric Commit] Block #{} | TxID: {} | cancelTransfer({}) by @{} -> Reason: {}",
+                blockNum, txId, transferId, actor, finalReason);
+
+        return transfer;
+    }
+
+    public synchronized BlockchainTransferRecord attachDocumentToTransfer(
+            String transferId,
+            String documentId,
+            String sha256Hash
+    ) {
+        checkLiveness();
+        BlockchainTransferRecord transfer = transferWorldState.get(transferId);
+        if (transfer == null) {
+            throw new ChaincodeException("Chaincode Error: Transfer proposal [" + transferId + "] not found.");
+        }
+        transfer.setDeedDocumentId(documentId);
+        if (sha256Hash != null && !sha256Hash.isBlank()) {
+            transfer.setDeedSha256Hash(sha256Hash);
+        } else {
+            BlockchainDocumentRecord doc = documentWorldState.get(documentId);
+            if (doc != null) {
+                transfer.setDeedSha256Hash(doc.getSha256Hash());
+            }
+        }
         return transfer;
     }
 
     public synchronized BlockchainTransaction approveTransfer(
             String transferId,
             String registrarActor,
-            String callerMspId
+            String callerMspId,
+            String deedDocumentId
     ) {
         checkLiveness();
 
-        if (callerMspId != null && !callerMspId.equalsIgnoreCase("RegistrarMSP") && !callerMspId.equalsIgnoreCase("GovernmentMSP") && !callerMspId.equalsIgnoreCase("Org1MSP")) {
+        if (callerMspId != null && !callerMspId.equalsIgnoreCase("RegistrarMSP") &&
+                !callerMspId.equalsIgnoreCase("GovernmentMSP") && !callerMspId.equalsIgnoreCase("Org1MSP")) {
             throw new UnauthorizedOrganizationException("Organization [" + callerMspId + "] is not authorized to approve title conveyances.");
         }
 
@@ -344,8 +580,14 @@ public class FabricLedgerEngine {
             throw new ChaincodeException("Chaincode Error: Transfer proposal [" + transferId + "] not found.");
         }
 
-        if (!"INITIATED".equalsIgnoreCase(transfer.getStatus())) {
-            throw new ChaincodeException("Chaincode Error: Transfer [" + transferId + "] is already " + transfer.getStatus());
+        if ("APPROVED".equalsIgnoreCase(transfer.getStatus())) {
+            throw new ChaincodeException("Chaincode Error: Transfer [" + transferId + "] is already APPROVED.");
+        }
+
+        // Must be in PENDING_REGISTRAR (or INITIATED for backward compatibility)
+        if (!"PENDING_REGISTRAR".equalsIgnoreCase(transfer.getStatus()) && !"INITIATED".equalsIgnoreCase(transfer.getStatus())) {
+            throw new ChaincodeException("Chaincode Error: Transfer [" + transferId + "] cannot be approved in status [" +
+                    transfer.getStatus() + "]. Both owner and buyer must accept the transaction before Sub-Registrar review.");
         }
 
         BlockchainPropertyRecord prop = propertyWorldState.get(transfer.getPropertyId());
@@ -355,6 +597,15 @@ public class FabricLedgerEngine {
 
         if ("FROZEN".equalsIgnoreCase(prop.getStatus())) {
             throw new PropertyFrozenException("Chaincode Error: Property was frozen during conveyance review. Conveyance aborted.");
+        }
+
+        // Attach deed doc if provided
+        if (deedDocumentId != null && !deedDocumentId.isBlank()) {
+            transfer.setDeedDocumentId(deedDocumentId);
+            BlockchainDocumentRecord doc = documentWorldState.get(deedDocumentId);
+            if (doc != null) {
+                transfer.setDeedSha256Hash(doc.getSha256Hash());
+            }
         }
 
         long blockNum = currentBlockNumber.incrementAndGet();
@@ -374,6 +625,8 @@ public class FabricLedgerEngine {
         transfer.setStatus("APPROVED");
         transfer.setApprovedBy(registrarActor);
         transfer.setApprovedAt(now);
+        transfer.setTxId(txId);
+        transfer.setBlockNumber(blockNum);
 
         BlockchainHistoryRecord history = BlockchainHistoryRecord.builder()
                 .txId(txId)
@@ -386,18 +639,29 @@ public class FabricLedgerEngine {
                 .status("ACTIVE")
                 .actor(registrarActor)
                 .actorMsp(callerMspId)
-                .details("Title conveyance formally executed on Fabric ledger by Sub-Registrar @" + registrarActor + ". Ownership transitioned from @" + oldOwner + " to @" + newOwner)
+                .details("Title conveyance formally executed on Fabric ledger by Sub-Registrar @" + registrarActor +
+                        ". Ownership transitioned from @" + oldOwner + " to @" + newOwner +
+                        (transfer.getDeedDocumentId() != null ? " [Deed: " + transfer.getDeedDocumentId() + "]" : ""))
                 .isDelete(false)
                 .build();
         propertyHistoryStore.computeIfAbsent(prop.getPropertyId(), k -> new ArrayList<>()).add(history);
 
-        String payload = String.format("{\"propertyId\":\"%s\",\"previousOwner\":\"%s\",\"newOwner\":\"%s\"}", prop.getPropertyId(), oldOwner, newOwner);
+        String payload = String.format("{\"propertyId\":\"%s\",\"previousOwner\":\"%s\",\"newOwner\":\"%s\",\"transferId\":\"%s\"}",
+                prop.getPropertyId(), oldOwner, newOwner, transferId);
         BlockchainTransaction tx = commitTransaction(txId, blockNum, now, "transferOwnership", callerMspId, registrarActor, payload);
 
         log.info("⛓️ [Fabric Commit] Block #{} | TxID: {} | transferOwnership({}) -> New Authoritative Owner: {}",
                 blockNum, txId, prop.getPropertyId(), newOwner);
 
         return tx;
+    }
+
+    public synchronized BlockchainTransaction approveTransfer(
+            String transferId,
+            String registrarActor,
+            String callerMspId
+    ) {
+        return approveTransfer(transferId, registrarActor, callerMspId, null);
     }
 
     public List<BlockchainTransferRecord> getAllTransfers() {
@@ -412,6 +676,14 @@ public class FabricLedgerEngine {
             throw new ChaincodeException("Transfer [" + transferId + "] not found.");
         }
         return t;
+    }
+
+    public List<BlockchainTransferRecord> getTransfersByProperty(String propertyId) {
+        checkLiveness();
+        return transferWorldState.values().stream()
+                .filter(t -> t.getPropertyId().equalsIgnoreCase(propertyId))
+                .sorted((a, b) -> b.getInitiatedAt().compareTo(a.getInitiatedAt()))
+                .toList();
     }
 
     /* ── MORTGAGE & FREEZE FUNCTIONS ─────────────────────────────────────────── */
